@@ -146,19 +146,27 @@ def load_ruleset(path: Path, _seen: frozenset[Path] = frozenset()) -> Ruleset:
     return merge_rulesets(Ruleset(), rs)
 
 
-def load_effective_ruleset(ruleset: str | None, cwd: Path) -> Ruleset:
+def _load_user_ruleset(cfg: Path) -> Ruleset:
+    user = parse_ruleset(
+        yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}, str(cfg)
+    )
+    if user.extends:
+        user = load_ruleset(cfg)
+    return user
+
+
+def load_effective_ruleset(
+    ruleset: str | None, cwd: Path, config_path: Path | None = None
+) -> Ruleset:
     """--ruleset(既定 base)を読み、cwd から遡って jevapan.yaml を見つけたら
     その上にマージする。ユーザー yaml に extends が無ければ選択中の
-    ルールセットを継承する。"""
+    ルールセットを継承する。config_path 指定時は探索をスキップする。"""
     base = load_ruleset(resolve_preset(ruleset or "base"))
+    if config_path is not None:
+        return merge_rulesets(base, _load_user_ruleset(config_path))
     for d in [cwd, *cwd.parents]:
         for name in ("jevapan.yaml", ".jevapan.yaml"):
             cfg = d / name
             if cfg.exists():
-                user = parse_ruleset(
-                    yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}, str(cfg)
-                )
-                if user.extends:
-                    user = load_ruleset(cfg)
-                return merge_rulesets(base, user)
+                return merge_rulesets(base, _load_user_ruleset(cfg))
     return base
