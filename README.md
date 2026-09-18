@@ -95,8 +95,9 @@ uv run ruff check --fix . && uv run ruff format . && uv run mypy .
 
 - 境界判定の精度とコスト: 行数に比例する質問数。長い文書での上限は要検証
 - **初回実測(2026-09-18, samples/bad.md)**: 境界候補は「各非空行と次の非空行」のペア(空行は飛ばす)。空行区切りの段落も質問対象になり、prob >= BOUNDARY_THRESHOLD で切断される。切断点は次の非空行の直前で、空行はどちらのブロック行範囲にも含めない
-- `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (start, end, category) は pipeline で1件に集約し scope='both'・probability は大きい方を採用する
+- `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (行範囲, オフセット, text, category) は pipeline で1件に集約し、scope は実際の出現集合から求める({block,document}→'both')。probability は大きい方を採用する
 - 見出し行(`# まとめ` 等)も文候補として locate の対象になる。structure.locate が見出しを対象とするため候補に残す方針(設計メモ)
 - `threshold` の既定 1.5、`BOUNDARY_THRESHOLD`/`LOCATE_THRESHOLD` の 0.5 は初回値。実データで調整が要る
 - document scope の state 上限(現在は概算 32000 字で skip)
+- **既知の制約(state サイズ、フェーズ2で対応予定)**: 境界判定(noul)は各質問に文書全文を state として再送するため、長文ではコスト・サイズが上限(state+最長質問 32k tokens、state+全質問 64k tokens)を超え得る。document locate の state は「先頭16000字+全文の候補列」で、合計が概算 32000 字を超える場合は候補列を切り詰めず `locate_state_too_large` で skipped に記録する。抜本対応は共有ウィンドウ方式でフェーズ2に行う
 - Jev の日本語判定精度は対象ドメインでの検証が前提

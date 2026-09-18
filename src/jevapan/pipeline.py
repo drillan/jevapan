@@ -3,7 +3,11 @@ from collections.abc import Coroutine
 from typing import Any
 
 from jevapan.engine import Engine
-from jevapan.locator import locate_in_block, locate_in_document
+from jevapan.locator import (
+    StateTooLargeError,
+    locate_in_block,
+    locate_in_document,
+)
 from jevapan.models import LintResult, Violation
 from jevapan.ruleset import Ruleset, Scope
 from jevapan.scorer import score_blocks, score_document
@@ -43,31 +47,43 @@ async def lint_text(
     engine: Engine, text: str, ruleset: Ruleset, file_label: str
 ) -> LintResult:
     lines = text.splitlines() or [""]
-    blocks = await segment(engine, text)
     cats = [c for c in ruleset.categories if c.enabled]
 
-    block_scores = await score_blocks(engine, blocks, cats, doc_lines=lines)
+    # サイズ上限チェックは全 API 呼出しの前に行う
     skipped: list[dict[str, Any]] = []
     doc_cats = [c for c in cats if c.scope in (Scope.document, Scope.both)]
-    if doc_cats and len(text) > STATE_DOC_LIMIT:
+    doc_oversize = bool(doc_cats) and len(text) > STATE_DOC_LIMIT
+    if doc_oversize:
         skipped += [{"category": c.name, "reason": "state_too_large"} for c in doc_cats]
-        doc_scores = {}
-    else:
-        doc_scores = await score_document(engine, text, cats)
+
+    blocks = await segment(engine, text)
+    block_scores = await score_blocks(engine, blocks, cats, doc_lines=lines)
+    doc_scores = {} if doc_oversize else await score_document(engine, text, cats)
 
     # flag → locate
     tasks: list[Coroutine[Any, Any, list[Violation]]] = []
+    task_cats: list[str] = []
     for sb in block_scores:
         for name, cs in sb.scores.items():
             cat = next(c for c in cats if c.name == name)
             if cs.score < cat.threshold and cat.locate:
                 tasks.append(locate_in_block(engine, sb.block, cat, lines))
+                task_cats.append(name)
     for name, cs in doc_scores.items():
         cat = next(c for c in cats if c.name == name)
         if cs.score < cat.threshold and cat.locate:
             tasks.append(locate_in_document(engine, text, cat, lines))
-    nested = await asyncio.gather(*tasks)
-    violations = _merge_duplicates([v for lst in nested for v in lst])
+            task_cats.append(name)
+    nested = await asyncio.gather(*tasks, return_exceptions=True)
+    violations: list[Violation] = []
+    for name, res in zip(task_cats, nested, strict=True):
+        if isinstance(res, StateTooLargeError):
+            skipped.append({"category": name, "reason": "locate_state_too_large"})
+        elif isinstance(res, BaseException):
+            raise res
+        else:
+            violations.extend(res)
+    violations = _merge_duplicates(violations)
 
     return LintResult(
         file=file_label,

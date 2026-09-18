@@ -5,6 +5,12 @@ from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
 LOCATE_THRESHOLD = 0.5
+# document locate の state(document スライス + 候補列)の文字数予算(概算)
+LOCATE_STATE_LIMIT = 32000
+
+
+class StateTooLargeError(Exception):
+    """locate 用 state が上限を超えた。候補列の黙った切り詰めはしない。"""
 
 
 def split_candidates(
@@ -75,8 +81,14 @@ async def locate_in_document(
     cands = split_candidates(pseudo, all_lines)
     if not cands:
         return []
+    document = text[:16000]
+    cand_texts = [t for _, _, t in cands]
+    if len(document) + sum(len(t) for t in cand_texts) > LOCATE_STATE_LIMIT:
+        raise StateTooLargeError(
+            f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
+        )
     probs = await engine.noul_batch(
-        {"document": text[:16000], "candidates": [t for _, _, t in cands]},
+        {"document": document, "candidates": cand_texts},
         questions={
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
             for i in range(len(cands))

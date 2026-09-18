@@ -44,6 +44,8 @@ async def score_blocks(
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
     questions = {c.name: (c.description, c.levels) for c in targets}
+    if not questions:
+        return [ScoredBlock(block=b) for b in blocks]
 
     async def one(b: Block) -> ScoredBlock:
         heading = _nearest_heading(doc_lines, b.start) if doc_lines else ""

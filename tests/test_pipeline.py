@@ -26,6 +26,39 @@ async def test_pipeline_skips_document_scope_over_limit() -> None:
     )
     res = await lint_text(eng, "x" * 40000, rs, "big.md")
     assert res.skipped and res.skipped[0]["reason"] == "state_too_large"
+    # 上限チェックは全 API 呼出し前に行われ、document 採点(全文 state)は呼ばれない
+    assert all(
+        not isinstance(c.kwargs["state"], str) for c in eng.score_batch.call_args_list
+    )
+
+
+async def test_document_locate_state_overflow_is_skipped() -> None:
+    """document locate の state(先頭16000字+候補列)が上限超過 → skipped で明示。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"s0": 0.9}
+    )
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.0)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "document",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                    "locate": "x?",
+                }
+            ]
+        },
+        "t",
+    )
+    # len(text) <= STATE_DOC_LIMIT だが locate state (16000 + 候補 ~30000) は超過
+    res = await lint_text(eng, "あ。" * 15000, rs, "f.md")
+    assert res.skipped == [{"category": "c", "reason": "locate_state_too_large"}]
+    assert res.violations == []
 
 
 async def test_pipeline_merges_duplicate_violations() -> None:
