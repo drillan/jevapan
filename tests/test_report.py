@@ -1,6 +1,6 @@
 from jevapan.models import Block, Violation
 from jevapan.pipeline import LintResult
-from jevapan.report import exit_code, fail_under_exit_code, render_json
+from jevapan.report import exit_code, fail_under_exit_code, render_human, render_json
 from jevapan.scorer import CategoryScore, ScoredBlock
 
 
@@ -12,7 +12,7 @@ def _result(violations: list[Violation]) -> LintResult:
         doc_scores={},
         violations=violations,
         skipped=[],
-        summary={},
+        summary={"blocks": 1, "violations": len(violations), "errors": 0},
     )
 
 
@@ -64,3 +64,15 @@ def test_fail_under_error_violation_takes_priority() -> None:
     r = _scored(2.0)
     r.violations = [Violation(1, 1, "block", "c", "error", 0.9, "x")]
     assert fail_under_exit_code([r], 1.5) == 1
+
+
+def test_score_flagged_violation_has_no_probability() -> None:
+    """locate 未指定 flag は Noul 確率を持たず、score/confidence を別
+    フィールドに持つ(P= 表示は Noul 由来のみ)。"""
+    v = Violation(
+        1, 2, "block", "c", "warning", None, "body", score=0.5, confidence=0.9
+    )
+    out = render_json(_result([v]))["violations"][0]
+    assert out["probability"] is None
+    assert out["score"] == 0.5 and out["confidence"] == 0.9
+    assert "P=" not in render_human(_result([v]))

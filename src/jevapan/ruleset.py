@@ -1,3 +1,4 @@
+import math
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,15 @@ class Category(BaseModel):
     def _levels_document_len(cls, v: list[str] | None) -> list[str] | None:
         if v is not None and not 2 <= len(v) <= 5:
             raise ValueError("levels_document must have 2-5 entries")
+        return v
+
+    @field_validator("locate_threshold")
+    @classmethod
+    def _locate_threshold_range(cls, v: float) -> float:
+        # Noul 確率と比較する閾値なので [0,1] の有限値のみ。
+        # NaN/負値/>1 は全候補の黙った不採用/採用を招くため拒否
+        if not math.isfinite(v) or not 0.0 <= v <= 1.0:
+            raise ValueError("locate_threshold must be a finite value in [0, 1]")
         return v
 
     @model_validator(mode="after")

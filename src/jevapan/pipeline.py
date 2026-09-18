@@ -29,6 +29,7 @@ def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
     out = []
     for (start, end, col, text, cat), vs in groups.items():
         scopes = {v.scope for v in vs}
+        probs = [v.probability for v in vs if v.probability is not None]
         out.append(
             Violation(
                 start=start,
@@ -36,9 +37,13 @@ def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
                 scope="both" if len(scopes) > 1 else vs[0].scope,
                 category=cat,
                 severity=vs[0].severity,
-                probability=max(v.probability for v in vs),
+                probability=max(probs) if probs else None,
                 text=text,
                 col=col,
+                score=next((v.score for v in vs if v.score is not None), None),
+                confidence=next(
+                    (v.confidence for v in vs if v.confidence is not None), None
+                ),
             )
         )
     return out
@@ -79,7 +84,8 @@ async def lint_text(
                 tasks.append(locate_in_block(engine, sb.block, cat, lines, excluded))
                 task_cats.append(name)
             else:
-                # probability には score の confidence を載せる
+                # Score 由来の flag: probability は持たず score/confidence を
+                # 別フィールドに保持(confidence は違反確率ではない)
                 violations.append(
                     Violation(
                         start=sb.block.start,
@@ -87,8 +93,10 @@ async def lint_text(
                         scope="block",
                         category=name,
                         severity=cat.severity.value,
-                        probability=cs.confidence,
+                        probability=None,
                         text=sb.block.text,
+                        score=cs.score,
+                        confidence=cs.confidence,
                     )
                 )
     for name, cs in doc_scores.items():
@@ -106,8 +114,10 @@ async def lint_text(
                     scope="document",
                     category=name,
                     severity=cat.severity.value,
-                    probability=cs.confidence,
+                    probability=None,
                     text="",
+                    score=cs.score,
+                    confidence=cs.confidence,
                 )
             )
     nested = await asyncio.gather(*tasks, return_exceptions=True)

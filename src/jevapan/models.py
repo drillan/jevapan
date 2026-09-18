@@ -18,14 +18,23 @@ class Block:
 
 @dataclass
 class Violation:
+    """違反レコード。結果種別の契約:
+    - locate 由来: probability に Noul の yes 確率、score/confidence は None
+    - locate 未指定 flag(Score 由来): probability は None、
+      score/confidence に Score の値を保持する。
+      Score confidence は水準分布の集中度であり違反確率ではないので
+      probability に流用しない。"""
+
     start: int
     end: int
     scope: str
     category: str
     severity: str
-    probability: float
+    probability: float | None
     text: str
     col: int = 0  # 行内の文字オフセット(0始まり)。同一行の別文を区別する
+    score: float | None = None
+    confidence: float | None = None
 
     @property
     def lines(self) -> tuple[int, int]:

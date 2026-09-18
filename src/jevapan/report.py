@@ -28,7 +28,12 @@ def render_json(result: LintResult) -> dict[str, Any]:
                 "scope": v.scope,
                 "category": v.category,
                 "severity": v.severity,
-                "probability": round(v.probability, 3),
+                # locate 由来のみ Noul 確率。Score 由来 flag は score/confidence
+                "probability": (
+                    round(v.probability, 3) if v.probability is not None else None
+                ),
+                "score": v.score,
+                "confidence": v.confidence,
                 "text": v.text,
             }
             for v in result.violations
@@ -44,9 +49,14 @@ def render_human(result: LintResult) -> str:
         f"{result.summary['violations']} violations"
     ]
     for v in result.violations:
+        # P= は Noul 由来の違反確率のみ。Score 由来 flag は score 表示
+        prob = (
+            f"P={v.probability:.2f}"
+            if v.probability is not None
+            else f"score={v.score:.1f}"
+        )
         out.append(
-            f"  L{v.start}-{v.end} [{v.severity}] {v.category} "
-            f"P={v.probability:.2f} {v.text[:70]}"
+            f"  L{v.start}-{v.end} [{v.severity}] {v.category} {prob} {v.text[:70]}"
         )
     for s in result.skipped:
         name = s.get("category", s.get("stage", "?"))

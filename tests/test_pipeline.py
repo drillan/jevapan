@@ -150,6 +150,9 @@ async def test_flag_without_locate_creates_block_violation() -> None:
     v = res.violations[0]
     assert v.category == "c" and v.scope == "block"
     assert (v.start, v.end) == (1, 1)
+    # Score 由来 flag は Noul 確率を持たず score/confidence を別フィールドに
+    assert v.probability is None
+    assert v.score == 0.0 and v.confidence == 0.9
 
 
 async def test_doc_flag_without_locate_creates_document_violation() -> None:

@@ -83,3 +83,22 @@ def test_levels_document_empty_rejected() -> None:
             },
             "test",
         )
+
+
+@pytest.mark.parametrize("bad", [-1.0, 2.0, float("nan")])
+def test_locate_threshold_must_be_finite_in_unit_interval(bad: float) -> None:
+    """locate_threshold は [0,1] の有限値のみ(NaN/負値/>1 はスキーマエラー)。"""
+    with pytest.raises(ValueError, match="locate_threshold"):
+        parse_ruleset(
+            {
+                "categories": [
+                    {
+                        "name": "c",
+                        "description": "d",
+                        "levels": ["a", "b"],
+                        "locate_threshold": bad,
+                    }
+                ]
+            },
+            "t",
+        )
