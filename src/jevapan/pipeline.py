@@ -14,6 +14,28 @@ __all__ = ["LintResult", "STATE_DOC_LIMIT", "lint_text"]
 STATE_DOC_LIMIT = 32000  # document scope に渡す文字数の上限(概算)
 
 
+def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
+    """同一 (start, end, category) が block/document 両スコープで出た場合1件に
+    集約する。scope='both'、probability は大きい方を採用。"""
+    merged: dict[tuple[int, int, str], Violation] = {}
+    for v in violations:
+        key = (v.start, v.end, v.category)
+        prev = merged.get(key)
+        if prev is None:
+            merged[key] = v
+        else:
+            merged[key] = Violation(
+                start=v.start,
+                end=v.end,
+                scope="both",
+                category=v.category,
+                severity=v.severity,
+                probability=max(prev.probability, v.probability),
+                text=prev.text,
+            )
+    return list(merged.values())
+
+
 async def lint_text(
     engine: Engine, text: str, ruleset: Ruleset, file_label: str
 ) -> LintResult:
@@ -42,7 +64,7 @@ async def lint_text(
         if cs.score < cat.threshold and cat.locate:
             tasks.append(locate_in_document(engine, text, cat, lines))
     nested = await asyncio.gather(*tasks)
-    violations: list[Violation] = [v for lst in nested for v in lst]
+    violations = _merge_duplicates([v for lst in nested for v in lst])
 
     return LintResult(
         file=file_label,
