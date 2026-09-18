@@ -27,7 +27,7 @@
 | ツール名 | jevapan（コマンドは `jevapan` と短縮形 `jvp` の2つを登録） |
 | 責任範囲 | 判定・指摘のみ。修正は呼び出し側 |
 | ルール定義 | YAML テンプレート固定。カテゴリ名・水準・特定指示・severity・threshold・scope のみ書ける |
-| ブロック分割 | 方式A: Jev が行境界ごとに「話題・役割が変わるか」を Noul で判定。Markdown パーサを持たない |
+| ブロック分割 | 方式A: Jev が行境界ごとに「話題・役割が変わるか」を Noul で判定。完全な Markdown パーサは持たないが、fenced code・front matter・表行は決定的に構文解析して採点対象から除外する(mask.py) |
 | 既定ルール | base / tech-doc / blog の3プリセットを同梱 |
 | ルール層 | Jev のセマンティック判定のみ。決定的ルール層は持たない |
 | コスト制御 | キャッシュ機構は拡張点のみ。v1 は毎回全量判定 |
@@ -42,6 +42,7 @@ src/jevapan/
 ├── cli.py          … argparse。check サブコマンド
 ├── config.py       … jevapan.yaml の探索・読み込み・pydantic 検証
 ├── ruleset.py      … ルールセット解決(プリセット名→パス、extends マージ)
+├── mask.py         … 構文領域マスク(fenced code/front matter/表行)の source map
 ├── segmenter.py    … 行境界 Noul → ブロック列
 ├── scorer.py       … ブロック×カテゴリの Score を fan-out
 ├── locator.py      … flag 箇所の文単位 Noul

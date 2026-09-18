@@ -31,8 +31,7 @@ async def test_segment_splits_blank_separated_paragraphs() -> None:
     assert blocks[0].text == "a" and blocks[1].text == "b\nc"
 
 
-async def test_segment_empty_doc_returns_single_block() -> None:
+async def test_segment_empty_doc_returns_no_blocks() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
-    blocks = await segment(eng, "")
-    assert len(blocks) == 1
+    assert await segment(eng, "") == []

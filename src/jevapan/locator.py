@@ -1,4 +1,5 @@
 import re
+from collections.abc import Set as AbstractSet
 
 from jevapan.engine import Engine
 from jevapan.models import Block, Violation
@@ -14,13 +15,17 @@ class StateTooLargeError(Exception):
 
 
 def split_candidates(
-    block: Block, text_lines: list[str]
+    block: Block,
+    text_lines: list[str],
+    excluded: AbstractSet[int] = frozenset(),
 ) -> list[tuple[tuple[int, int], int, str]]:
     """ブロック内の候補文。(行範囲, 行内オフセット, 文)のリスト。
-    箇条書き等は行単位で候補にする。"""
+    箇条書き等は行単位で候補にする。除外行(0始まり行 index)は候補にしない。"""
     cands: list[tuple[tuple[int, int], int, str]] = []
     for off, line in enumerate(text_lines):
         lineno = block.start + off
+        if lineno - 1 in excluded:
+            continue
         if line.lstrip().startswith(("- ", "* ", "+ ")):
             t = line.strip()
             cands.append(((lineno, lineno), line.index(t), t))
@@ -36,11 +41,15 @@ def split_candidates(
 
 
 async def locate_in_block(
-    engine: Engine, block: Block, category: Category, doc_lines: list[str]
+    engine: Engine,
+    block: Block,
+    category: Category,
+    doc_lines: list[str],
+    excluded: AbstractSet[int] = frozenset(),
 ) -> list[Violation]:
     if not category.locate:
         return []
-    cands = split_candidates(block, block.text.splitlines())
+    cands = split_candidates(block, block.text.splitlines(), excluded)
     if not cands:
         return []
     # 対象ブロック直前の文脈(末尾側 ~2000字)を context に渡す
@@ -73,12 +82,16 @@ async def locate_in_block(
 
 
 async def locate_in_document(
-    engine: Engine, text: str, category: Category, all_lines: list[str]
+    engine: Engine,
+    text: str,
+    category: Category,
+    all_lines: list[str],
+    excluded: AbstractSet[int] = frozenset(),
 ) -> list[Violation]:
     if not category.locate:
         return []
     pseudo = Block(1, len(all_lines), text)
-    cands = split_candidates(pseudo, all_lines)
+    cands = split_candidates(pseudo, all_lines, excluded)
     if not cands:
         return []
     document = text[:16000]

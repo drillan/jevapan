@@ -8,6 +8,7 @@ from jevapan.locator import (
     locate_in_block,
     locate_in_document,
 )
+from jevapan.mask import analyze_syntax, masked_text
 from jevapan.models import LintResult, Violation
 from jevapan.ruleset import Ruleset, Scope
 from jevapan.scorer import score_blocks, score_document
@@ -48,17 +49,22 @@ async def lint_text(
 ) -> LintResult:
     lines = text.splitlines() or [""]
     cats = [c for c in ruleset.categories if c.enabled]
+    # 構文領域は文書全体で一度だけ解析し、行番号を保つ source map として共有
+    excluded = analyze_syntax(lines)
+    masked = masked_text(lines, excluded)
 
     # サイズ上限チェックは全 API 呼出しの前に行う
     skipped: list[dict[str, Any]] = []
     doc_cats = [c for c in cats if c.scope in (Scope.document, Scope.both)]
-    doc_oversize = bool(doc_cats) and len(text) > STATE_DOC_LIMIT
+    doc_oversize = bool(doc_cats) and len(masked) > STATE_DOC_LIMIT
     if doc_oversize:
         skipped += [{"category": c.name, "reason": "state_too_large"} for c in doc_cats]
 
-    blocks = await segment(engine, text)
-    block_scores = await score_blocks(engine, blocks, cats, doc_lines=lines)
-    doc_scores = {} if doc_oversize else await score_document(engine, text, cats)
+    blocks = await segment(engine, text, excluded)
+    block_scores = await score_blocks(
+        engine, blocks, cats, doc_lines=lines, excluded=excluded
+    )
+    doc_scores = {} if doc_oversize else await score_document(engine, masked, cats)
 
     # flag → locate
     tasks: list[Coroutine[Any, Any, list[Violation]]] = []
@@ -67,12 +73,12 @@ async def lint_text(
         for name, cs in sb.scores.items():
             cat = next(c for c in cats if c.name == name)
             if cs.score < cat.threshold and cat.locate:
-                tasks.append(locate_in_block(engine, sb.block, cat, lines))
+                tasks.append(locate_in_block(engine, sb.block, cat, lines, excluded))
                 task_cats.append(name)
     for name, cs in doc_scores.items():
         cat = next(c for c in cats if c.name == name)
         if cs.score < cat.threshold and cat.locate:
-            tasks.append(locate_in_document(engine, text, cat, lines))
+            tasks.append(locate_in_document(engine, text, cat, lines, excluded))
             task_cats.append(name)
     nested = await asyncio.gather(*tasks, return_exceptions=True)
     violations: list[Violation] = []

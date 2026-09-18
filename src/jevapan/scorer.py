@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 
 from jevapan.engine import Engine
@@ -28,11 +29,16 @@ def _doc_cats(cats: list[Category]) -> list[Category]:
     return [c for c in cats if c.enabled and c.scope in (Scope.document, Scope.both)]
 
 
-def _nearest_heading(lines: list[str], before: int) -> str:
-    """before(1始まり行番号)より前の直近の見出し行(# 始まり)を返す。"""
-    for ln in reversed(lines[: before - 1]):
-        if ln.lstrip().startswith("#"):
-            return ln.strip().lstrip("#").strip()
+def _nearest_heading(
+    lines: list[str], before: int, excluded: AbstractSet[int] = frozenset()
+) -> str:
+    """before(1始まり行番号)より前の直近の見出し行(# 始まり)を返す。
+    除外行(コード内コメント等)は見出しにしない。"""
+    for idx in range(min(before - 2, len(lines) - 1), -1, -1):
+        if idx in excluded:
+            continue
+        if lines[idx].lstrip().startswith("#"):
+            return lines[idx].strip().lstrip("#").strip()
     return ""
 
 
@@ -41,6 +47,7 @@ async def score_blocks(
     blocks: list[Block],
     cats: list[Category],
     doc_lines: list[str] | None = None,
+    excluded: AbstractSet[int] = frozenset(),
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
     questions = {c.name: (c.description, c.levels) for c in targets}
@@ -48,7 +55,7 @@ async def score_blocks(
         return [ScoredBlock(block=b) for b in blocks]
 
     async def one(b: Block) -> ScoredBlock:
-        heading = _nearest_heading(doc_lines, b.start) if doc_lines else ""
+        heading = _nearest_heading(doc_lines, b.start, excluded) if doc_lines else ""
         res = await engine.score_batch(
             state={"heading": heading, "body": b.text}, questions=questions
         )
