@@ -10,3 +10,18 @@ class Block:
     @property
     def lines(self) -> tuple[int, int]:
         return (self.start, self.end)
+
+
+@dataclass
+class Violation:
+    start: int
+    end: int
+    scope: str
+    category: str
+    severity: str
+    probability: float
+    text: str
+
+    @property
+    def lines(self) -> tuple[int, int]:
+        return (self.start, self.end)
