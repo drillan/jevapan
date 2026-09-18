@@ -73,10 +73,11 @@ src/jevapan/
 - 同一 state への質問は1リクエストに fan-out する
 - エンジンは生 `typesafe-sdk`。pydantic-ai は構造化 state を質問に渡せず、境界判定・文特定の「候補を state で与える」形が書けないため不採用
 - **既知の制約(score ゲート)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る(recall は score ゲートに依存)。locate 側の確率閾値はカテゴリ別 `locate_threshold`(既定0.6)で調整可能
+- **補助文脈の state 構造**: block 採点と block locate は同じ補助文脈(直近の有効見出し `heading` + 直前の prose 段落 `context`、除外行は含めない)を共有し、評価対象本文(`body`/`block`・`candidates`)と分離して渡す
 
 ### 候補の列挙
 
-- **境界候補**: 隣接する非空行のペアすべて。見出し行・箇条書き・空行は特別扱いせず、Jev が文脈から判定する。空行自体も境界候補ではなく、文脈情報として state に残す
+- **境界候補**: 各非空・非除外行と次の非空・非除外行のペア(空行は飛ばす)。除外行は連結を断つ。ペアは最大30ずつ連続グループに一意に割当てられ、グループの対象範囲+前後余白を共有 state とした共有ウィンドウで判定する(質問はウィンドウ内 index、ウィンドウ端は強制境界にしない)。core・実ペイロードともに文字数予算を超える場合は分割し、それでも収まらないペアは未検査として skipped に記録する
 - **文候補(locator)**: ブロック内を「。」と行単位(箇条書き各行)で分割した文列。プロトタイプで判明した箇条書き接着問題を避けるため、行単位も候補に含める
 - **スコアの数値範囲**: levels の個数-1 が最大(3段なら 0〜2)。threshold はこの数値と比較する
 
@@ -184,11 +185,20 @@ jvp check docs/ -r           # 再帰
   "blocks": [{"lines": [1, 8], "scores": {"structure": {"score": 1.9, "confidence": 0.8}}}],
   "violations": [{"lines": [3, 3], "scope": "block", "category": "substance",
                    "severity": "warning", "probability": 0.91,
+                   "score": null, "confidence": null,
                    "text": "重要なのは〜である。"}],
   "skipped": [{"category": "consistency", "reason": "state_too_large"}],
   "summary": {"blocks": 12, "violations": 4, "errors": 0}
 }
 ```
+
+違反レコードの結果種別契約:
+
+- **locate 由来**: `probability` に Noul の yes 確率、`score`/`confidence` は null
+- **locate 未指定 flag(Score 由来)**: `probability` は null、`score`/`confidence` に Score の値。Score confidence は水準分布の集中度であり違反確率ではないため `probability` に流用しない
+- human 出力の `P=` 表示は Noul 由来のみ(Score 由来は `score=` 表示)
+
+`skipped` エントリは `{category, reason}`(カテゴリ単位の未検査)または `{stage, reason, lines}`(境界ペア等カテゴリを持たない未検査)。reason は `state_too_large`/`window_state_too_large`/`score_state_too_large`/`locate_state_too_large`/`no_evaluable_prose`。未検査は切り詰め・既定値での継続をせず必ずここに記録する
 
 ### 終了コード
 

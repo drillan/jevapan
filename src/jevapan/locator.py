@@ -1,5 +1,6 @@
 import re
 from collections.abc import Set as AbstractSet
+from contextvars import ContextVar
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
@@ -9,6 +10,12 @@ from jevapan.ruleset import Category
 # locate の実ペイロード(state+questions)の文字数予算(概算。根拠は
 # engine.payload_chars 参照)。超過時は切り詰めず skipped で明示
 LOCATE_STATE_LIMIT = 32000
+
+# eval_thresholds.py が locate 呼出しのメタデータ(カテゴリ名・scope・
+# 候補の原文位置)を取得するためのフック。質問文の逆引きを避ける
+LOCATE_META: ContextVar[
+    tuple[str, str, list[tuple[tuple[int, int], int, str]]] | None
+] = ContextVar("jevapan_locate_meta", default=None)
 
 
 class StateTooLargeError(Exception):
@@ -69,7 +76,11 @@ async def locate_in_block(
         raise StateTooLargeError(
             f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
         )
-    res = await engine.noul_batch(state=state, questions=questions)
+    token = LOCATE_META.set((category.name, "block", cands))
+    try:
+        res = await engine.noul_batch(state=state, questions=questions)
+    finally:
+        LOCATE_META.reset(token)
     return [
         Violation(
             start=lr[0],
@@ -109,7 +120,11 @@ async def locate_in_document(
         raise StateTooLargeError(
             f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
         )
-    res = await engine.noul_batch(state, questions)
+    token = LOCATE_META.set((category.name, "document", cands))
+    try:
+        res = await engine.noul_batch(state, questions)
+    finally:
+        LOCATE_META.reset(token)
     return [
         Violation(
             start=lr[0],
