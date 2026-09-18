@@ -205,7 +205,7 @@ jvp check docs/ -r           # 再帰
 | document scope が state 上限超過 | そのカテゴリをスキップ、`skipped` に理由を記録 |
 | YAML スキーマ違反 | pydantic で起動時検証、どのカテゴリのどのフィールドが不正かを出して exit 2 |
 | extends の循環 | exit 2、循環したパスを表示 |
-| 空文書 | ブロック1個＝全文として正常処理 |
+| 空文書・評価対象 prose 0(コードのみ等) | 採点・locate を実行せず blocks=[]、document scope カテゴリは `skipped{reason:"no_evaluable_prose"}` |
 
 ## テスト方針
 

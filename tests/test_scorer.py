@@ -129,3 +129,27 @@ async def test_score_blocks_passes_heading_and_preceding_prose() -> None:
     assert "code()" not in state["context"]
     assert "x = 1" not in state["context"]
     assert state["body"] == "対象ブロックの文。"
+
+
+async def test_score_instructions_include_authorship_scope() -> None:
+    """Score の採点基準(instructions)にも locate と同じ「著者自身の記述を
+    対象とする」条件を含め、採点と特定の対象契約を一致させる。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.5, 0.9)}
+    )
+    blocks = [Block(1, 1, "対象文。")]
+    await score_blocks(eng, blocks, [_cat("structure")])
+    instr = eng.score_batch.call_args.kwargs["questions"]["structure"][0]
+    assert "著者自身の記述" in instr
+    assert "引用" in instr and "ルール定義" in instr
+
+
+async def test_document_score_instructions_include_authorship_scope() -> None:
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"consistency": ScoreResult(1.5, 0.9)}
+    )
+    await score_document(eng, "doc", [_cat("consistency", scope="document")])
+    instr = eng.score_batch.call_args.kwargs["questions"]["consistency"][0]
+    assert "著者自身の記述" in instr

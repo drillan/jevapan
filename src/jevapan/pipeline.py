@@ -65,6 +65,25 @@ async def lint_text(
     if doc_oversize:
         skipped += [{"category": c.name, "reason": "state_too_large"} for c in doc_cats]
 
+    # 評価対象 prose が0(空文書・コードのみ等)なら採点・locate を行わない。
+    # [excluded] は除外領域の目印であり文章品質の評価対象ではない
+    prose_empty = not any(
+        ln.strip() and i not in excluded for i, ln in enumerate(lines)
+    )
+    if prose_empty:
+        skipped += [
+            {"category": c.name, "reason": "no_evaluable_prose"} for c in doc_cats
+        ]
+        return LintResult(
+            file=file_label,
+            blocks=[],
+            block_scores=[],
+            doc_scores={},
+            violations=[],
+            skipped=skipped,
+            summary={"blocks": 0, "violations": 0, "errors": 0},
+        )
+
     blocks = await segment(engine, text, excluded, skipped=skipped)
     block_scores = await score_blocks(
         engine, blocks, cats, doc_lines=lines, excluded=excluded, skipped=skipped

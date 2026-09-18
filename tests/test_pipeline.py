@@ -230,3 +230,32 @@ async def test_block_locate_payload_overflow_is_skipped() -> None:
     res = await lint_text(eng, "あ。" * 10000, rs, "f.md")
     assert res.skipped == [{"category": "c", "reason": "locate_state_too_large"}]
     assert res.violations == []
+
+
+async def test_no_prose_document_skips_document_scoring() -> None:
+    """評価対象 prose が0の文書(コードのみ/空)では document 採点・
+    locate を実行せず blocks=[] と skipped を返す。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.99)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "document",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                }
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "```\ncode\n```", rs, "code.md")
+    eng.score_batch.assert_not_awaited()
+    eng.noul_batch.assert_not_awaited()
+    assert res.blocks == []
+    assert res.violations == []
+    assert res.skipped == [{"category": "c", "reason": "no_evaluable_prose"}]

@@ -12,6 +12,14 @@ from jevapan.ruleset import Category, Scope
 # engine.payload_chars 参照)。超過時はそのブロックを採点せず skipped に明示
 SCORE_STATE_LIMIT = 32000
 
+# locate と同じ評価対象条件を Score の採点基準にも適用し、採点と特定の
+# 対象契約を一致させる(引用・悪文の説明例・ルール定義を著者の悪文と
+# 同一視しない)。全カテゴリに一貫適用するためコード側で付与する
+AUTHOR_SCOPE_CLAUSE = (
+    " 評価対象は著者自身の記述のみとし、引用・悪文の説明例・ルール定義の"
+    "中の文は採点対象としない。"
+)
+
 
 @dataclass
 class CategoryScore:
@@ -44,7 +52,9 @@ async def score_blocks(
     skipped: list[dict[str, Any]] | None = None,
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
-    questions = {c.name: (c.description, c.levels) for c in targets}
+    questions = {
+        c.name: (c.description + AUTHOR_SCOPE_CLAUSE, c.levels) for c in targets
+    }
     if not questions:
         return [ScoredBlock(block=b) for b in blocks]
 
@@ -83,7 +93,8 @@ async def score_document(
 ) -> dict[str, CategoryScore]:
     targets = _doc_cats(cats)
     questions = {
-        c.name: (c.description, c.levels_document or c.levels) for c in targets
+        c.name: (c.description + AUTHOR_SCOPE_CLAUSE, c.levels_document or c.levels)
+        for c in targets
     }
     if not questions:
         return {}
