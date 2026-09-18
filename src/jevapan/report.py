@@ -23,6 +23,7 @@ def render_json(result: LintResult) -> dict[str, Any]:
         "violations": [
             {
                 "lines": list(v.lines),
+                "col": v.col,
                 "scope": v.scope,
                 "category": v.category,
                 "severity": v.severity,

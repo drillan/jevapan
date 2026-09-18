@@ -55,3 +55,34 @@ async def test_pipeline_merges_duplicate_violations() -> None:
     assert len(res.violations) == 1
     v = res.violations[0]
     assert v.scope == "both" and v.probability == 0.9 and v.text == "x。"
+
+
+async def test_pipeline_does_not_merge_distinct_sentences() -> None:
+    """同一行の別文は別 violation として残り、block 同士で 'both' に化けない。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"s0": 0.8, "s1": 0.9}
+    )
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.5, 0.9)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "block",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                    "locate": "x?",
+                }
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "一文目。二文目。", rs, "f.md")
+    assert len(res.violations) == 2
+    assert {v.text for v in res.violations} == {"一文目。", "二文目。"}
+    assert all(v.scope == "block" for v in res.violations)
+    # オフセットで区別できる
+    assert {v.col for v in res.violations} == {0, 4}

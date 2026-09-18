@@ -15,25 +15,28 @@ STATE_DOC_LIMIT = 32000  # document scope に渡す文字数の上限(概算)
 
 
 def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
-    """同一 (start, end, category) が block/document 両スコープで出た場合1件に
-    集約する。scope='both'、probability は大きい方を採用。"""
-    merged: dict[tuple[int, int, str], Violation] = {}
+    """同一 (行範囲, オフセット, text, category) の Violation を1件に集約する。
+    scope は実際の出現 scope 集合から求め、{block,document} なら 'both'、
+    単一ならそのまま使う。probability は大きい方を採用。"""
+    groups: dict[tuple[int, int, int, str, str], list[Violation]] = {}
     for v in violations:
-        key = (v.start, v.end, v.category)
-        prev = merged.get(key)
-        if prev is None:
-            merged[key] = v
-        else:
-            merged[key] = Violation(
-                start=v.start,
-                end=v.end,
-                scope="both",
-                category=v.category,
-                severity=v.severity,
-                probability=max(prev.probability, v.probability),
-                text=prev.text,
+        groups.setdefault((v.start, v.end, v.col, v.text, v.category), []).append(v)
+    out = []
+    for (start, end, col, text, cat), vs in groups.items():
+        scopes = {v.scope for v in vs}
+        out.append(
+            Violation(
+                start=start,
+                end=end,
+                scope="both" if len(scopes) > 1 else vs[0].scope,
+                category=cat,
+                severity=vs[0].severity,
+                probability=max(v.probability for v in vs),
+                text=text,
+                col=col,
             )
-    return list(merged.values())
+        )
+    return out
 
 
 async def lint_text(

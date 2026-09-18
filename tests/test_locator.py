@@ -9,7 +9,7 @@ from jevapan.ruleset import Category
 def test_split_candidates_sentences_and_bullet_lines() -> None:
     block = Block(1, 4, "一文目。二文目。\n- 箇条書きA\n- 箇条書きB")
     cands = split_candidates(block, block.text.splitlines())
-    texts = [t for _, t in cands]
+    texts = [t for _, _, t in cands]
     assert "一文目。" in texts and "二文目。" in texts
     assert "- 箇条書きA" in texts and "- 箇条書きB" in texts
 

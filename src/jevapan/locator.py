@@ -9,18 +9,24 @@ LOCATE_THRESHOLD = 0.5
 
 def split_candidates(
     block: Block, text_lines: list[str]
-) -> list[tuple[tuple[int, int], str]]:
-    """ブロック内の候補文。(行範囲, 文)のリスト。箇条書き等は行単位で候補にする。"""
-    cands: list[tuple[tuple[int, int], str]] = []
+) -> list[tuple[tuple[int, int], int, str]]:
+    """ブロック内の候補文。(行範囲, 行内オフセット, 文)のリスト。
+    箇条書き等は行単位で候補にする。"""
+    cands: list[tuple[tuple[int, int], int, str]] = []
     for off, line in enumerate(text_lines):
         lineno = block.start + off
         if line.lstrip().startswith(("- ", "* ", "+ ")):
-            cands.append(((lineno, lineno), line.strip()))
+            t = line.strip()
+            cands.append(((lineno, lineno), line.index(t), t))
             continue
-        parts = [p for p in re.split(r"(?<=。)\s*", line.strip()) if p]
-        for p in parts:
-            cands.append(((lineno, lineno), p))
-    return [(lr, t) for lr, t in cands if t]
+        pos = 0
+        for p in re.split(r"(?<=。)\s*", line.strip()):
+            if not p:
+                continue
+            col = line.index(p, pos)
+            cands.append(((lineno, lineno), col, p))
+            pos = col + len(p)
+    return cands
 
 
 async def locate_in_block(
@@ -32,7 +38,7 @@ async def locate_in_block(
     if not cands:
         return []
     probs = await engine.noul_batch(
-        {"context": context[:2000], "candidates": [t for _, t in cands]},
+        {"context": context[:2000], "candidates": [t for _, _, t in cands]},
         {
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
             for i in range(len(cands))
@@ -47,8 +53,9 @@ async def locate_in_block(
             severity=category.severity.value,
             probability=probs[f"s{i}"],
             text=t,
+            col=col,
         )
-        for i, (lr, t) in enumerate(cands)
+        for i, (lr, col, t) in enumerate(cands)
         if probs[f"s{i}"] >= LOCATE_THRESHOLD
     ]
 
@@ -63,7 +70,7 @@ async def locate_in_document(
     if not cands:
         return []
     probs = await engine.noul_batch(
-        {"document": text[:16000], "candidates": [t for _, t in cands]},
+        {"document": text[:16000], "candidates": [t for _, _, t in cands]},
         {
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
             for i in range(len(cands))
@@ -78,7 +85,8 @@ async def locate_in_document(
             severity=category.severity.value,
             probability=probs[f"s{i}"],
             text=t,
+            col=col,
         )
-        for i, (lr, t) in enumerate(cands)
+        for i, (lr, col, t) in enumerate(cands)
         if probs[f"s{i}"] >= LOCATE_THRESHOLD
     ]

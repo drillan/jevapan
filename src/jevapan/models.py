@@ -25,6 +25,7 @@ class Violation:
     severity: str
     probability: float
     text: str
+    col: int = 0  # 行内の文字オフセット(0始まり)。同一行の別文を区別する
 
     @property
     def lines(self) -> tuple[int, int]:
