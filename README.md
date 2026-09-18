@@ -100,5 +100,6 @@ uv run ruff check --fix . && uv run ruff format . && uv run mypy .
 - **構文領域の除外(製品仕様)**: fenced code block(```/~~~)、先頭の front matter(`---`〜`---`)、表行(`|` 始まり)は採点対象から除外する。表行はセル内に日本語 prose を含み得るが、行単位の除外を製品仕様として採用(セル単位の prose 抽出は将来検討)。裸の YAML/JSON「らしさ」判定などのヒューリスティックは入れない。除外は境界候補・採点本文・locate 候補に一貫適用し、除外行はブロックをまたがない(強制切断)。文脈(state の context/document フィールド)には残す。行番号・文字オフセットは原文の source map で保持し、行削除・再採番はしない
 - `threshold` の既定 1.5、`BOUNDARY_THRESHOLD`/`LOCATE_THRESHOLD` の 0.5 は初回値。実データで調整が要る
 - document scope の state 上限(現在は概算 32000 字で skip)
-- **既知の制約(state サイズ、フェーズ2で対応予定)**: 境界判定(noul)は各質問に文書全文を state として再送するため、長文ではコスト・サイズが上限(state+最長質問 32k tokens、state+全質問 64k tokens)を超え得る。document locate の state は「先頭16000字+全文の候補列」で、合計が概算 32000 字を超える場合は候補列を切り詰めず `locate_state_too_large` で skipped に記録する。抜本対応は共有ウィンドウ方式でフェーズ2に行う
+- **境界判定の共有ウィンドウ**: 境界ペアは最大30ペアずつのグループに一意に割当てられ、各グループの対象範囲+前後余白(最大20行、合計 ~16000字の文字数予算内)を1つの state として共有する。質問はウィンドウ内 index で参照し、元行番号との対応はコードが管理する。余白内のペアは重複判定せず、ウィンドウ端を強制境界にしない。グループ単位のリクエストは semaphore 内で asyncio.gather により並列実行される
+- **既知の制約(state サイズ)**: document locate の state は「先頭16000字+全文の候補列」で、合計が概算 32000 字を超える場合は候補列を切り詰めず `locate_state_too_large` で skipped に記録する。locate の候補 state はカテゴリごとに再送される(同一ブロックの flag 済みカテゴリ×候補をまとめる余地あり)
 - Jev の日本語判定精度は対象ドメインでの検証が前提

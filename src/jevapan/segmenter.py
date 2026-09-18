@@ -1,4 +1,6 @@
+import asyncio
 from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 
 from jevapan.engine import Engine
 from jevapan.models import Block
@@ -14,6 +16,19 @@ def _boundary_question(i: int, j: int) -> str:
 
 
 BOUNDARY_THRESHOLD = 0.5
+# 1ウィンドウが担当する境界ペア数(目安20〜50)
+WINDOW_PAIRS = 30
+# ウィンドウ前後の余白行数の上限
+WINDOW_MARGIN_LINES = 20
+# ウィンドウ state の文字数予算(概算)。余白はこの範囲でのみ広げる
+WINDOW_STATE_CHARS = 16000
+
+
+@dataclass
+class Window:
+    start: int  # 0始まりの開始行(含む)
+    end: int  # 0始まりの終了行(含む)
+    pairs: list[tuple[int, int]]  # 担当ペア(元の行 index)
 
 
 def find_boundary_candidates(
@@ -35,6 +50,35 @@ def find_boundary_candidates(
     return cands
 
 
+def build_windows(
+    lines: list[str],
+    candidates: list[tuple[int, int]],
+    max_pairs: int = WINDOW_PAIRS,
+    margin: int = WINDOW_MARGIN_LINES,
+    budget: int = WINDOW_STATE_CHARS,
+) -> list[Window]:
+    """境界ペアを連続したグループに一意に割当て、各グループの対象範囲+
+    前後余白を共有ウィンドウにする。余白内のペアは重複判定しない。"""
+    windows: list[Window] = []
+    for g in range(0, len(candidates), max_pairs):
+        pairs = candidates[g : g + max_pairs]
+        lo, hi = pairs[0][0], pairs[-1][1]
+        total = sum(len(lines[k]) + 1 for k in range(lo, hi + 1))
+        start, end = lo, hi
+        for _ in range(margin):
+            if start == 0 or total + len(lines[start - 1]) + 1 > budget:
+                break
+            start -= 1
+            total += len(lines[start]) + 1
+        for _ in range(margin):
+            if end >= len(lines) - 1 or total + len(lines[end + 1]) + 1 > budget:
+                break
+            end += 1
+            total += len(lines[end]) + 1
+        windows.append(Window(start=start, end=end, pairs=pairs))
+    return windows
+
+
 async def segment(
     engine: Engine, text: str, excluded: AbstractSet[int] = frozenset()
 ) -> list[Block]:
@@ -43,13 +87,17 @@ async def segment(
     if not prose:
         return []
     candidates = find_boundary_candidates(lines, excluded)
-    if candidates:
-        probs = await engine.noul_batch(
-            {"lines": lines},
-            {f"b{i}": _boundary_question(i, j) for i, j in candidates},
+    windows = build_windows(lines, candidates)
+
+    async def ask(w: Window) -> dict[str, float]:
+        # 質問はウィンドウ内 index で参照。元行番号との対応はコードが管理
+        return await engine.noul_batch(
+            {"lines": lines[w.start : w.end + 1]},
+            {f"b{i}": _boundary_question(i - w.start, j - w.start) for i, j in w.pairs},
         )
-    else:
-        probs = {}
+
+    results = await asyncio.gather(*(ask(w) for w in windows))
+    probs = {k: v for r in results for k, v in r.items()}
     cuts = {j for i, j in candidates if probs[f"b{i}"] >= BOUNDARY_THRESHOLD}
     # 切断点は j の直前。空行・除外行は境界自体に属し、ブロック行範囲は
     # 非空・非除外行の範囲を使う。除外領域は連結を断つので必ず切断する。
