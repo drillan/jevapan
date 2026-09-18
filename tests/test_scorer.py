@@ -99,3 +99,33 @@ async def test_score_blocks_skips_oversized_payload() -> None:
             "lines": [1, 1],
         }
     ]
+
+
+async def test_score_blocks_passes_heading_and_preceding_prose() -> None:
+    """採点 state は locator と同じ補助文脈を持つ: 直近の有効見出しと
+    直前の prose 段落(除外行=コードは文脈を埋めない)。本文は body。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.5, 0.9)}
+    )
+    doc_lines = [
+        "# 設計",
+        "x = 1  # コード内コメント",
+        "直前の段落で語を定義する。",
+        "```",
+        "code();" * 300,
+        "```",
+        "対象ブロックの文。",
+    ]
+    excluded = {1, 3, 4, 5}
+    blocks = [Block(7, 7, "対象ブロックの文。")]
+    await score_blocks(
+        eng, blocks, [_cat("structure")], doc_lines=doc_lines, excluded=excluded
+    )
+    state = eng.score_batch.call_args.kwargs["state"]
+    assert state["heading"] == "設計"
+    assert "直前の段落で語を定義する。" in state["context"]
+    # 除外行(コード)は補助文脈に入れない
+    assert "code()" not in state["context"]
+    assert "x = 1" not in state["context"]
+    assert state["body"] == "対象ブロックの文。"

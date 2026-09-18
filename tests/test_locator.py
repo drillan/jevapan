@@ -57,3 +57,26 @@ async def test_locate_in_block_raises_when_payload_too_large() -> None:
     block = Block(1, 1, "あ。" * 20000)
     with pytest.raises(StateTooLargeError):
         await locate_in_block(eng, block, cat, [block.text])
+
+
+async def test_locate_in_block_context_prioritizes_heading_and_paragraph() -> None:
+    """locate の補助文脈は直近見出し+直前 prose 段落を優先し、
+    長いコード(除外行)で先頭が埋まらない。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["bad", "good"], locate="x?")
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1}))  # type: ignore[method-assign]
+    doc_lines = [
+        "# 実装",
+        "直前の段落。",
+        "```",
+        "code();" * 400,
+        "```",
+        "対象の文。",
+    ]
+    excluded = {2, 3, 4}
+    block = Block(6, 6, "対象の文。")
+    await locate_in_block(eng, block, cat, doc_lines, excluded)
+    state = eng.noul_batch.call_args.kwargs["state"]
+    assert state["heading"] == "実装"
+    assert "直前の段落。" in state["context"]
+    assert "code()" not in state["context"]

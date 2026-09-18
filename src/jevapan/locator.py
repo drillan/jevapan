@@ -1,6 +1,7 @@
 import re
 from collections.abc import Set as AbstractSet
 
+from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
@@ -52,10 +53,11 @@ async def locate_in_block(
     cands = split_candidates(block, block.text.splitlines(), excluded)
     if not cands:
         return []
-    # 対象ブロック直前の文脈(末尾側 ~2000字)を context に渡す
-    context = "\n".join(doc_lines[: block.start - 1])[-2000:]
+    # 補助文脈は scorer と共有: 直近見出し + 直前の prose 段落(除外行は
+    # 含めない)。本文(block)と分離して渡す
     state = {
-        "context": context,
+        "heading": nearest_heading(doc_lines, block.start, excluded),
+        "context": preceding_context(doc_lines, block.start, excluded),
         "block": block.text,
         "candidates": [t for _, _, t in cands],
     }

@@ -3,6 +3,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from typing import Any
 
+from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
 from jevapan.models import Block
 from jevapan.ruleset import Category, Scope
@@ -34,19 +35,6 @@ def _doc_cats(cats: list[Category]) -> list[Category]:
     return [c for c in cats if c.enabled and c.scope in (Scope.document, Scope.both)]
 
 
-def _nearest_heading(
-    lines: list[str], before: int, excluded: AbstractSet[int] = frozenset()
-) -> str:
-    """before(1始まり行番号)より前の直近の見出し行(# 始まり)を返す。
-    除外行(コード内コメント等)は見出しにしない。"""
-    for idx in range(min(before - 2, len(lines) - 1), -1, -1):
-        if idx in excluded:
-            continue
-        if lines[idx].lstrip().startswith("#"):
-            return lines[idx].strip().lstrip("#").strip()
-    return ""
-
-
 async def score_blocks(
     engine: Engine,
     blocks: list[Block],
@@ -61,8 +49,10 @@ async def score_blocks(
         return [ScoredBlock(block=b) for b in blocks]
 
     async def one(b: Block) -> ScoredBlock:
-        heading = _nearest_heading(doc_lines, b.start, excluded) if doc_lines else ""
-        state = {"heading": heading, "body": b.text}
+        heading = nearest_heading(doc_lines, b.start, excluded) if doc_lines else ""
+        # 補助文脈(直前 prose 段落)は locator と共有し、本文(body)と分離
+        context = preceding_context(doc_lines, b.start, excluded) if doc_lines else ""
+        state = {"heading": heading, "context": context, "body": b.text}
         if payload_chars(state, questions) > SCORE_STATE_LIMIT:
             if skipped is not None:
                 skipped.extend(
