@@ -1,3 +1,4 @@
+import itertools
 from typing import Any
 
 from jevapan.models import LintResult
@@ -54,3 +55,23 @@ def render_human(result: LintResult) -> str:
 
 def exit_code(result: LintResult) -> int:
     return 1 if any(v.severity == "error" for v in result.violations) else 0
+
+
+def fail_under_exit_code(results: list[LintResult], fail_under: float) -> int:
+    """--fail-under の終了コード。error severity の violation があれば
+    score に関係なく exit 1(非指定時と同じ契約を優先)。"""
+    if any(exit_code(r) for r in results):
+        return 1
+    worst = min(
+        itertools.chain(
+            (
+                s.score
+                for r in results
+                for sb in r.block_scores
+                for s in sb.scores.values()
+            ),
+            (s.score for r in results for s in r.doc_scores.values()),
+        ),
+        default=3.0,
+    )
+    return 1 if worst < fail_under else 0

@@ -66,22 +66,51 @@ async def lint_text(
     )
     doc_scores = {} if doc_oversize else await score_document(engine, masked, cats)
 
-    # flag → locate
+    # flag → locate(locate 未指定ならブロック/文書単位の violation を生成)
     tasks: list[Coroutine[Any, Any, list[Violation]]] = []
     task_cats: list[str] = []
+    violations: list[Violation] = []
     for sb in block_scores:
         for name, cs in sb.scores.items():
             cat = next(c for c in cats if c.name == name)
-            if cs.score < cat.threshold and cat.locate:
+            if cs.score >= cat.threshold:
+                continue
+            if cat.locate:
                 tasks.append(locate_in_block(engine, sb.block, cat, lines, excluded))
                 task_cats.append(name)
+            else:
+                # probability には score の confidence を載せる
+                violations.append(
+                    Violation(
+                        start=sb.block.start,
+                        end=sb.block.end,
+                        scope="block",
+                        category=name,
+                        severity=cat.severity.value,
+                        probability=cs.confidence,
+                        text=sb.block.text,
+                    )
+                )
     for name, cs in doc_scores.items():
         cat = next(c for c in cats if c.name == name)
-        if cs.score < cat.threshold and cat.locate:
+        if cs.score >= cat.threshold:
+            continue
+        if cat.locate:
             tasks.append(locate_in_document(engine, text, cat, lines, excluded))
             task_cats.append(name)
+        else:
+            violations.append(
+                Violation(
+                    start=1,
+                    end=len(lines),
+                    scope="document",
+                    category=name,
+                    severity=cat.severity.value,
+                    probability=cs.confidence,
+                    text="",
+                )
+            )
     nested = await asyncio.gather(*tasks, return_exceptions=True)
-    violations: list[Violation] = []
     for name, res in zip(task_cats, nested, strict=True):
         if isinstance(res, StateTooLargeError):
             skipped.append({"category": name, "reason": "locate_state_too_large"})

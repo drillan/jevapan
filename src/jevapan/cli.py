@@ -9,7 +9,7 @@ from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
 
 from jevapan.engine import Engine
 from jevapan.pipeline import lint_text
-from jevapan.report import exit_code, render_human, render_json
+from jevapan.report import exit_code, fail_under_exit_code, render_human, render_json
 from jevapan.ruleset import load_effective_ruleset
 
 
@@ -39,6 +39,9 @@ def _iter_inputs(paths: list[str], recursive: bool) -> list[tuple[str, str]]:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    if args.concurrency < 1:
+        print("jevapan: --concurrency must be >= 1", file=sys.stderr)
+        return 2
     if not os.environ.get("TYPESAFE_API_KEY"):
         print(
             "TYPESAFE_API_KEY が未設定です。環境変数に設定してください",
@@ -67,16 +70,7 @@ async def _run(args: argparse.Namespace) -> int:
         for r in results:
             print(render_human(r))
     if args.fail_under is not None:
-        worst = min(
-            (
-                s.score
-                for r in results
-                for sb in r.block_scores
-                for s in sb.scores.values()
-            ),
-            default=3.0,
-        )
-        return 1 if worst < args.fail_under else 0
+        return fail_under_exit_code(results, args.fail_under)
     return max((exit_code(r) for r in results), default=0)
 
 

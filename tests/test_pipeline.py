@@ -119,3 +119,60 @@ async def test_pipeline_does_not_merge_distinct_sentences() -> None:
     assert all(v.scope == "block" for v in res.violations)
     # オフセットで区別できる
     assert {v.col for v in res.violations} == {0, 4}
+
+
+async def test_flag_without_locate_creates_block_violation() -> None:
+    """locate 未指定カテゴリが flag されたとき、ブロック単位の violation を生成する。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.9)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "block",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                    # locate なし
+                }
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "対象の文。", rs, "f.md")
+    assert len(res.violations) == 1
+    v = res.violations[0]
+    assert v.category == "c" and v.scope == "block"
+    assert (v.start, v.end) == (1, 1)
+
+
+async def test_doc_flag_without_locate_creates_document_violation() -> None:
+    """document scope で locate 未指定の flag は文書全体を範囲とする violation。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"b0": 0.0}
+    )
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.9)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "document",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                }
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "文1。\n文2。", rs, "f.md")
+    assert len(res.violations) == 1
+    v = res.violations[0]
+    assert v.category == "c" and v.scope == "document"
+    assert (v.start, v.end) == (1, 2)

@@ -37,3 +37,19 @@ def test_check_stdin_json(monkeypatch: Any, capsys: Any) -> None:
 def test_check_missing_api_key(monkeypatch: Any, capsys: Any) -> None:
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     assert main(["check", "-"]) == 2
+
+
+def test_check_concurrency_zero_is_validation_error(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    assert main(["check", "-", "--concurrency", "0"]) == 2
+    assert "concurrency" in capsys.readouterr().err
+
+
+def test_check_concurrency_negative_is_validation_error(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    assert main(["check", "-", "--concurrency", "-1"]) == 2
+    assert "concurrency" in capsys.readouterr().err

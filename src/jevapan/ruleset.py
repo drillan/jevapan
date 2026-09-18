@@ -45,6 +45,13 @@ class Category(BaseModel):
             raise ValueError("levels must have 2-5 entries")
         return v
 
+    @field_validator("levels_document")
+    @classmethod
+    def _levels_document_len(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None and not 2 <= len(v) <= 5:
+            raise ValueError("levels_document must have 2-5 entries")
+        return v
+
     @model_validator(mode="after")
     def _description_required_with_levels(self) -> "Category":
         if self.levels and not self.description:
@@ -108,6 +115,9 @@ def merge_rulesets(parent: Ruleset, child: Ruleset) -> Ruleset:
     merged = {c.name: c for c in parent.categories}
     for c in child.categories:
         if c.name in merged:
+            # 明示的な levels:[] patch は完全定義の不変条件を崩すので拒否
+            if "levels" in c.model_fields_set and not c.levels:
+                raise ValueError(f"category '{c.name}': levels patch must be non-empty")
             merged[c.name] = merged[c.name].model_copy(
                 update=c.model_dump(exclude_unset=True)
             )

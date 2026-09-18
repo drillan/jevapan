@@ -40,6 +40,14 @@ def test_merge_disabled_category() -> None:
     assert merge_rulesets(parent, child).categories[0].enabled is False
 
 
+def test_empty_levels_patch_rejected() -> None:
+    """既存カテゴリへの levels:[] patch は完全定義の不変条件を崩すので拒否。"""
+    parent = _rs([{"name": "a", "description": "d", "levels": ["x", "y"]}])
+    child = _rs([{"name": "a", "levels": []}])
+    with pytest.raises(ValueError, match="levels"):
+        merge_rulesets(parent, child)
+
+
 def test_extends_cycle_fails(tmp_path: Any) -> None:
     a = tmp_path / "a.yaml"
     b = tmp_path / "b.yaml"

@@ -48,3 +48,38 @@ def test_scope_both_and_document_accepted() -> None:
     )
     assert rs.categories[0].scope.value == "both"
     assert rs.categories[1].scope.value == "document"
+
+
+def test_levels_document_length_validated() -> None:
+    with pytest.raises(ValueError, match="levels_document"):
+        parse_ruleset(
+            {
+                "categories": [
+                    {
+                        "name": "c1",
+                        "scope": "document",
+                        "description": "d",
+                        "levels": ["a", "b"],
+                        "levels_document": ["only"],
+                    }
+                ]
+            },
+            "test",
+        )
+
+
+def test_levels_document_empty_rejected() -> None:
+    with pytest.raises(ValueError, match="levels_document"):
+        parse_ruleset(
+            {
+                "categories": [
+                    {
+                        "name": "c1",
+                        "description": "d",
+                        "levels": ["a", "b"],
+                        "levels_document": [],
+                    }
+                ]
+            },
+            "test",
+        )
