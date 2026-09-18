@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, ScoreResult
@@ -77,3 +78,24 @@ async def test_block_scores_use_nearest_preceding_heading() -> None:
     states = [c.kwargs["state"] for c in eng.score_batch.call_args_list]
     assert states[0]["heading"] == "導入"
     assert states[1]["heading"] == "実装"
+
+
+async def test_score_blocks_skips_oversized_payload() -> None:
+    """実ペイロード(見出し/文脈/本文/質問)が上限超過のブロックは採点せず
+    skipped に記録する(既定値で握らない)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.8, 0.7)}
+    )
+    big = Block(1, 1, "あ" * 40000)
+    skipped: list[dict[str, Any]] = []
+    out = await score_blocks(eng, [big], [_cat("structure")], skipped=skipped)
+    eng.score_batch.assert_not_awaited()
+    assert out[0].scores == {}
+    assert skipped == [
+        {
+            "category": "structure",
+            "reason": "score_state_too_large",
+            "lines": [1, 1],
+        }
+    ]

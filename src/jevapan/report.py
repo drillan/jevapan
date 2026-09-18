@@ -49,7 +49,9 @@ def render_human(result: LintResult) -> str:
             f"P={v.probability:.2f} {v.text[:70]}"
         )
     for s in result.skipped:
-        out.append(f"  skipped: {s['category']} ({s['reason']})")
+        name = s.get("category", s.get("stage", "?"))
+        loc = f" L{s['lines'][0]}-{s['lines'][1]}" if "lines" in s else ""
+        out.append(f"  skipped: {name} ({s['reason']}){loc}")
     return "\n".join(out)
 
 

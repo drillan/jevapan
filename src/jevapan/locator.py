@@ -1,11 +1,12 @@
 import re
 from collections.abc import Set as AbstractSet
 
-from jevapan.engine import Engine
+from jevapan.engine import Engine, payload_chars
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
-# document locate の state(document スライス + 候補列)の文字数予算(概算)
+# locate の実ペイロード(state+questions)の文字数予算(概算。根拠は
+# engine.payload_chars 参照)。超過時は切り詰めず skipped で明示
 LOCATE_STATE_LIMIT = 32000
 
 
@@ -53,17 +54,20 @@ async def locate_in_block(
         return []
     # 対象ブロック直前の文脈(末尾側 ~2000字)を context に渡す
     context = "\n".join(doc_lines[: block.start - 1])[-2000:]
-    res = await engine.noul_batch(
-        state={
-            "context": context,
-            "block": block.text,
-            "candidates": [t for _, _, t in cands],
-        },
-        questions={
-            f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
-            for i in range(len(cands))
-        },
-    )
+    state = {
+        "context": context,
+        "block": block.text,
+        "candidates": [t for _, _, t in cands],
+    }
+    questions = {
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        for i in range(len(cands))
+    }
+    if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
+        raise StateTooLargeError(
+            f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
+        )
+    res = await engine.noul_batch(state=state, questions=questions)
     return [
         Violation(
             start=lr[0],
@@ -94,18 +98,16 @@ async def locate_in_document(
     if not cands:
         return []
     document = text[:16000]
-    cand_texts = [t for _, _, t in cands]
-    if len(document) + sum(len(t) for t in cand_texts) > LOCATE_STATE_LIMIT:
+    state = {"document": document, "candidates": [t for _, _, t in cands]}
+    questions = {
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        for i in range(len(cands))
+    }
+    if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
         raise StateTooLargeError(
             f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
         )
-    res = await engine.noul_batch(
-        {"document": document, "candidates": cand_texts},
-        questions={
-            f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
-            for i in range(len(cands))
-        },
-    )
+    res = await engine.noul_batch(state, questions)
     return [
         Violation(
             start=lr[0],

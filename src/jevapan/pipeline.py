@@ -60,9 +60,9 @@ async def lint_text(
     if doc_oversize:
         skipped += [{"category": c.name, "reason": "state_too_large"} for c in doc_cats]
 
-    blocks = await segment(engine, text, excluded)
+    blocks = await segment(engine, text, excluded, skipped=skipped)
     block_scores = await score_blocks(
-        engine, blocks, cats, doc_lines=lines, excluded=excluded
+        engine, blocks, cats, doc_lines=lines, excluded=excluded, skipped=skipped
     )
     doc_scores = {} if doc_oversize else await score_document(engine, masked, cats)
 

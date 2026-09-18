@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -7,6 +8,19 @@ from typesafe_sdk import JSONContent, Noul, Score
 MAX_QUESTIONS_PER_REQUEST = 50
 
 Questions = dict[str, Noul | Score]
+
+
+def payload_chars(state: Any, questions: dict[str, Any] | None = None) -> int:
+    """実ペイロードの文字数概算(state + questions の JSON 化長)。
+
+    予算設計の根拠: 日本語は概ね 1 文字 ≈ 1 token で、state + 質問 +
+    回答を合わせたリクエスト全体がモデルの入力制約に収まる必要がある。
+    各段の上限(32000字、境界ウィンドウは共有前提で16000字)は一般的な
+    コンテキスト上限に対する保守的な頭金として設計している。"""
+    total = len(json.dumps(state, ensure_ascii=False))
+    if questions:
+        total += len(json.dumps(questions, ensure_ascii=False))
+    return total
 
 
 @dataclass

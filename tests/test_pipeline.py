@@ -179,3 +179,51 @@ async def test_doc_flag_without_locate_creates_document_violation() -> None:
     v = res.violations[0]
     assert v.category == "c" and v.scope == "document"
     assert (v.start, v.end) == (1, 2)
+
+
+async def test_oversized_single_line_skips_block_score_and_locate() -> None:
+    """4万字の単一行: block 採点/locate の実ペイロードが上限超過 →
+    両呼出しに到達せず skipped で明示(再現: review2 R1)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.0)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {"name": "c", "description": "d", "levels": ["a", "b"], "locate": "x?"}
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "あ" * 40000, rs, "long.md")
+    eng.score_batch.assert_not_awaited()
+    assert res.skipped == [
+        {"category": "c", "reason": "score_state_too_large", "lines": [1, 1]}
+    ]
+    assert res.violations == []
+
+
+async def test_block_locate_payload_overflow_is_skipped() -> None:
+    """採点は収まるが locate ペイロード(文脈+本文+候補+質問)が超過 →
+    locate_state_too_large で skipped。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value=NoulResult(probs={})
+    )
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.0)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {"name": "c", "description": "d", "levels": ["a", "b"], "locate": "x?"}
+            ]
+        },
+        "t",
+    )
+    # block ~20000字(採点は収まる)だが文候補が ~10000 件で locate 質問込み超過
+    res = await lint_text(eng, "あ。" * 10000, rs, "f.md")
+    assert res.skipped == [{"category": "c", "reason": "locate_state_too_large"}]
+    assert res.violations == []

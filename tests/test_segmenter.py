@@ -1,7 +1,14 @@
+from typing import Any
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult
-from jevapan.segmenter import find_boundary_candidates, segment
+from jevapan.mask import analyze_syntax
+from jevapan.segmenter import (
+    WINDOW_STATE_CHARS,
+    build_windows,
+    find_boundary_candidates,
+    segment,
+)
 
 
 def test_candidates_pair_with_next_nonempty_line() -> None:
@@ -86,3 +93,44 @@ async def test_segment_window_blocks_align_by_original_lines() -> None:
     eng.noul_batch = AsyncMock(side_effect=flagged)  # type: ignore[method-assign]
     blocks = await segment(eng, "\n".join(lines))
     assert [(b.start, b.end) for b in blocks] == [(1, 31), (32, 50)]
+
+
+def test_build_windows_splits_core_over_budget() -> None:
+    """core が予算超過ならグループを分割し、除外領域をまたいだ巨大な
+    原文範囲をひとまとめにしない。"""
+    lines = ["a", "b", "```", "X" * 50000, "```", "c", "d"]
+    excluded = analyze_syntax(lines)
+    candidates = find_boundary_candidates(lines, excluded)
+    windows, uninspected = build_windows(lines, candidates)
+    assert uninspected == []
+    # 全ペアが一意に担当され、各ウィンドウは予算内
+    assert [p for w in windows for p in w.pairs] == candidates
+    for w in windows:
+        total = sum(len(lines[k]) + 1 for k in range(w.start, w.end + 1))
+        assert total <= WINDOW_STATE_CHARS
+    # 5万字の除外行はどのウィンドウにも含まれない
+    assert all(w.start > 3 or w.end < 3 for w in windows)
+
+
+def test_build_windows_marks_oversized_single_pair_uninspected() -> None:
+    """単一ペアでも core が予算に収まらない場合は未検査として返す
+    (既定値で握らない)。"""
+    lines = ["あ" * 20000, "い" * 20000]
+    windows, uninspected = build_windows(lines, [(0, 1)])
+    assert windows == []
+    assert uninspected == [(0, 1)]
+
+
+async def test_segment_records_uninspected_pairs_in_skipped() -> None:
+    """未検査ペアは skipped に記録され、切断されない(未検査=境界なし
+    ではなく未評価として明示)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    skipped: list[dict[str, Any]] = []
+    text = "あ" * 20000 + "\n" + "い" * 20000
+    blocks = await segment(eng, text, skipped=skipped)
+    assert skipped == [
+        {"stage": "segment", "reason": "window_state_too_large", "lines": [1, 2]}
+    ]
+    eng.noul_batch.assert_not_awaited()
+    assert [(b.start, b.end) for b in blocks] == [(1, 2)]

@@ -43,3 +43,17 @@ async def test_locate_in_block_uses_preceding_context() -> None:
     assert "直前の段落。" in kw["state"]["context"]
     assert kw["state"]["block"] == "対象の文。"
     assert "a。" not in kw["state"]["context"]
+
+
+async def test_locate_in_block_raises_when_payload_too_large() -> None:
+    """block locate の実ペイロード(文脈+本文+候補+質問)が上限超過なら
+    StateTooLargeError(切り詰めない)。"""
+    import pytest
+
+    from jevapan.locator import StateTooLargeError
+
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
+    block = Block(1, 1, "あ。" * 20000)
+    with pytest.raises(StateTooLargeError):
+        await locate_in_block(eng, block, cat, [block.text])

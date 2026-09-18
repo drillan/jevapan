@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
+from typing import Any
 
 from jevapan.engine import Engine, NoulResult
 from jevapan.models import Block
@@ -56,14 +57,24 @@ def build_windows(
     max_pairs: int = WINDOW_PAIRS,
     margin: int = WINDOW_MARGIN_LINES,
     budget: int = WINDOW_STATE_CHARS,
-) -> list[Window]:
+) -> tuple[list[Window], list[tuple[int, int]]]:
     """境界ペアを連続したグループに一意に割当て、各グループの対象範囲+
-    前後余白を共有ウィンドウにする。余白内のペアは重複判定しない。"""
+    前後余白を共有ウィンドウにする。余白内のペアは重複判定しない。
+
+    core(担当ペアが張る行範囲)自体を予算で分割する。単一ペアでも
+    予算に収まらない場合は未検査として第2戻り値に返す(呼出し側で
+    skipped に明示し、黙って「境界なし」扱いにしない)。"""
     windows: list[Window] = []
-    for g in range(0, len(candidates), max_pairs):
-        pairs = candidates[g : g + max_pairs]
-        lo, hi = pairs[0][0], pairs[-1][1]
-        total = sum(len(lines[k]) + 1 for k in range(lo, hi + 1))
+    uninspected: list[tuple[int, int]] = []
+
+    def span_chars(lo: int, hi: int) -> int:
+        return sum(len(lines[k]) + 1 for k in range(lo, hi + 1))
+
+    group: list[tuple[int, int]] = []
+
+    def flush() -> None:
+        lo, hi = group[0][0], group[-1][1]
+        total = span_chars(lo, hi)
         start, end = lo, hi
         for _ in range(margin):
             if start == 0 or total + len(lines[start - 1]) + 1 > budget:
@@ -75,19 +86,44 @@ def build_windows(
                 break
             end += 1
             total += len(lines[end]) + 1
-        windows.append(Window(start=start, end=end, pairs=pairs))
-    return windows
+        windows.append(Window(start=start, end=end, pairs=list(group)))
+
+    for p in candidates:
+        if span_chars(p[0], p[1]) > budget:
+            uninspected.append(p)
+            continue
+        if group and (
+            len(group) >= max_pairs or span_chars(group[0][0], p[1]) > budget
+        ):
+            flush()
+            group = []
+        group.append(p)
+    if group:
+        flush()
+    return windows, uninspected
 
 
 async def segment(
-    engine: Engine, text: str, excluded: AbstractSet[int] = frozenset()
+    engine: Engine,
+    text: str,
+    excluded: AbstractSet[int] = frozenset(),
+    skipped: list[dict[str, Any]] | None = None,
 ) -> list[Block]:
     lines = text.splitlines() or [""]
     prose = [i for i, ln in enumerate(lines) if ln.strip() and i not in excluded]
     if not prose:
         return []
     candidates = find_boundary_candidates(lines, excluded)
-    windows = build_windows(lines, candidates)
+    windows, uninspected = build_windows(lines, candidates)
+    if skipped is not None:
+        skipped.extend(
+            {
+                "stage": "segment",
+                "reason": "window_state_too_large",
+                "lines": [i + 1, j + 1],
+            }
+            for i, j in uninspected
+        )
 
     async def ask(w: Window) -> NoulResult:
         # 質問はウィンドウ内 index で参照。元行番号との対応はコードが管理
@@ -98,7 +134,9 @@ async def segment(
 
     results = await asyncio.gather(*(ask(w) for w in windows))
     probs = {k: v for r in results for k, v in r.probs.items()}
-    cuts = {j for i, j in candidates if probs[f"b{i}"] >= BOUNDARY_THRESHOLD}
+    # 未検査ペア(probs に回答なし)は切断しない。skipped で明示済み
+    asked = [p for w in windows for p in w.pairs]
+    cuts = {j for i, j in asked if probs[f"b{i}"] >= BOUNDARY_THRESHOLD}
     # 切断点は j の直前。空行・除外行は境界自体に属し、ブロック行範囲は
     # 非空・非除外行の範囲を使う。除外領域は連結を断つので必ず切断する。
     spans: list[tuple[int, int]] = []
