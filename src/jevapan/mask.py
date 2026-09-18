@@ -5,10 +5,31 @@
 import re
 from collections.abc import Set as AbstractSet
 
-# ``` または ~~~ のフェンス行(行頭の空白は3文字まで許容)
-_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+# ``` または ~~~ のフェンス行。CommonMark 準拠:
+# - 行頭インデントは半角空白3文字まで(タブは4桁相当→ indented code で fence にならない)
+# - 開き backtick fence の info string は backtick を含めない
+# - 閉じは同種・同長以上のフェンス文字のみで、末尾は空白以外許さない
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 MASK_PLACEHOLDER = "[excluded]"
+
+
+def _open_fence(line: str) -> tuple[str, int] | None:
+    m = _FENCE_RE.match(line)
+    if not m:
+        return None
+    ch, info = m.group(1), m.group(2)
+    if ch[0] == "`" and "`" in info:
+        return None
+    return (ch[0], len(ch))
+
+
+def _close_fence(line: str, fence: tuple[str, int]) -> bool:
+    m = _FENCE_RE.match(line)
+    if not m:
+        return False
+    ch, info = m.group(1), m.group(2)
+    return ch[0] == fence[0] and len(ch) >= fence[1] and not info.strip()
 
 
 def analyze_syntax(lines: list[str]) -> frozenset[int]:
@@ -30,14 +51,14 @@ def analyze_syntax(lines: list[str]) -> frozenset[int]:
 
     fence: tuple[str, int] | None = None
     for i in range(start, len(lines)):
-        m = _FENCE_RE.match(lines[i])
         if fence is not None:
             excluded.add(i)
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
+            if _close_fence(lines[i], fence):
                 fence = None
             continue
-        if m:
-            fence = (m.group(1)[0], len(m.group(1)))
+        opened = _open_fence(lines[i])
+        if opened is not None:
+            fence = opened
             excluded.add(i)
         elif lines[i].lstrip().startswith("|"):
             excluded.add(i)

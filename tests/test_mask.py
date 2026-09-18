@@ -18,6 +18,37 @@ def test_analyze_fenced_code_tilde_and_unclosed() -> None:
     assert analyze_syntax(lines) == {1, 2, 3, 5, 6}
 
 
+def test_fence_close_requires_only_trailing_whitespace() -> None:
+    """閉じ fence の後に非空白があれば閉じとみなさない(CommonMark)。
+    偽終端でコードを prose に戻し、本文を誤除外してはいけない。"""
+    lines = ["```", "```not_a_closer", "code。", "```", "actual prose。"]
+    assert analyze_syntax(lines) == {0, 1, 2, 3}
+
+
+def test_fence_close_allows_trailing_whitespace() -> None:
+    lines = ["```", "code", "```   ", "本文。"]
+    assert analyze_syntax(lines) == {0, 1, 2}
+
+
+def test_fence_open_backtick_info_must_not_contain_backtick() -> None:
+    """backtick fence の info string に backtick を含む行は開きでない
+    (CommonMark)。tilde fence の info は backtick を含んでよい。"""
+    lines = ["``` ``", "本文。", "~~~ ` info", "code", "~~~", "本文2。"]
+    assert analyze_syntax(lines) == {2, 3, 4}
+
+
+def test_fence_indented_up_to_3_spaces() -> None:
+    lines = ["   ```", "code", "   ```", "本文。"]
+    assert analyze_syntax(lines) == {0, 1, 2}
+
+
+def test_fence_tab_indented_is_not_fence() -> None:
+    """行頭タブは CommonMark では4桁インデント相当→ indented code であり
+    fence にならない。"""
+    lines = ["\t```", "code。", "\t```"]
+    assert analyze_syntax(lines) == set()
+
+
 def test_analyze_front_matter() -> None:
     lines = ["---", "title: x", "tags: [a]", "---", "", "本文。"]
     assert analyze_syntax(lines) == {0, 1, 2, 3}
