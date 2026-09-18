@@ -94,6 +94,9 @@ uv run ruff check --fix . && uv run ruff format . && uv run mypy .
 ## 検証課題
 
 - 境界判定の精度とコスト: 行数に比例する質問数。長い文書での上限は要検証
-- `threshold` の既定 1.5 は仮置き。実データで調整が要る
+- **初回実測(2026-09-18, samples/bad.md)**: 段落が空行区切りの一般的な Markdown では隣接非空行ペアが存在せず、文書全体が1ブロックになる(未分割側に倒れる)。ブロック単位の粒度が効くのは見出し直後の本文・箇条書き・ハードラップされた行など、隣接非空行がある文書に限られる。空行を確定的な境界として切る設計変更は今後の検討課題
+- `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag され、violations が重複して出力される(実測で確認)。集約・重複排除の要否を検討
+- 見出し行(`# まとめ` 等)も文候補として locate の対象になる。見出しを候補から外すかは要検討
+- `threshold` の既定 1.5、`BOUNDARY_THRESHOLD`/`LOCATE_THRESHOLD` の 0.5 は初回値。実データで調整が要る
 - document scope の state 上限(現在は概算 32000 字で skip)
 - Jev の日本語判定精度は対象ドメインでの検証が前提
