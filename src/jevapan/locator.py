@@ -30,16 +30,22 @@ def split_candidates(
 
 
 async def locate_in_block(
-    engine: Engine, block: Block, category: Category, context: str
+    engine: Engine, block: Block, category: Category, doc_lines: list[str]
 ) -> list[Violation]:
     if not category.locate:
         return []
     cands = split_candidates(block, block.text.splitlines())
     if not cands:
         return []
+    # 対象ブロック直前の文脈(末尾側 ~2000字)を context に渡す
+    context = "\n".join(doc_lines[: block.start - 1])[-2000:]
     probs = await engine.noul_batch(
-        {"context": context[:2000], "candidates": [t for _, _, t in cands]},
-        {
+        state={
+            "context": context,
+            "block": block.text,
+            "candidates": [t for _, _, t in cands],
+        },
+        questions={
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
             for i in range(len(cands))
         },
@@ -71,7 +77,7 @@ async def locate_in_document(
         return []
     probs = await engine.noul_batch(
         {"document": text[:16000], "candidates": [t for _, _, t in cands]},
-        {
+        questions={
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
             for i in range(len(cands))
         },

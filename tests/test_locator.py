@@ -26,6 +26,20 @@ async def test_locate_flags_high_probability_sentences() -> None:
         return_value={"s0": 0.9, "s1": 0.2, "s2": 0.1}
     )
     block = Block(1, 3, "a。b。c。")
-    out = await locate_in_block(eng, block, cat, "ctx")
+    out = await locate_in_block(eng, block, cat, ["a。b。c。"])
     assert len(out) == 1
     assert out[0].text == "a。" and out[0].category == "substance"
+
+
+async def test_locate_in_block_uses_preceding_context() -> None:
+    """後半ブロックの locate で直前段落が state の context に含まれる。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["bad", "good"], locate="x?")
+    eng.noul_batch = AsyncMock(return_value={"s0": 0.1})  # type: ignore[method-assign]
+    doc_lines = ["# 導入", "直前の段落。", "", "対象の文。"]
+    block = Block(4, 4, "対象の文。")
+    await locate_in_block(eng, block, cat, doc_lines)
+    _, kw = eng.noul_batch.call_args
+    assert "直前の段落。" in kw["state"]["context"]
+    assert kw["state"]["block"] == "対象の文。"
+    assert "a。" not in kw["state"]["context"]

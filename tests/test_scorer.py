@@ -64,3 +64,16 @@ async def test_scope_both_in_both_passes() -> None:
     b_out = await score_blocks(eng, blocks, cats)
     d_out = await score_document(eng, "t", cats)
     assert "concision" in b_out[0].scores and "concision" in d_out
+
+
+async def test_block_scores_use_nearest_preceding_heading() -> None:
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.5, 0.9)}
+    )
+    doc_lines = ["# 導入", "", "前文。", "# 実装", "", "対象文。"]
+    blocks = [Block(3, 3, "前文。"), Block(6, 6, "対象文。")]
+    await score_blocks(eng, blocks, [_cat("structure")], doc_lines=doc_lines)
+    states = [c.kwargs["state"] for c in eng.score_batch.call_args_list]
+    assert states[0]["heading"] == "導入"
+    assert states[1]["heading"] == "実装"

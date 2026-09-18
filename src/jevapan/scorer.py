@@ -28,15 +28,27 @@ def _doc_cats(cats: list[Category]) -> list[Category]:
     return [c for c in cats if c.enabled and c.scope in (Scope.document, Scope.both)]
 
 
+def _nearest_heading(lines: list[str], before: int) -> str:
+    """before(1始まり行番号)より前の直近の見出し行(# 始まり)を返す。"""
+    for ln in reversed(lines[: before - 1]):
+        if ln.lstrip().startswith("#"):
+            return ln.strip().lstrip("#").strip()
+    return ""
+
+
 async def score_blocks(
-    engine: Engine, blocks: list[Block], cats: list[Category]
+    engine: Engine,
+    blocks: list[Block],
+    cats: list[Category],
+    doc_lines: list[str] | None = None,
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
     questions = {c.name: (c.description, c.levels) for c in targets}
 
     async def one(b: Block) -> ScoredBlock:
+        heading = _nearest_heading(doc_lines, b.start) if doc_lines else ""
         res = await engine.score_batch(
-            state={"heading": "", "body": b.text}, questions=questions
+            state={"heading": heading, "body": b.text}, questions=questions
         )
         return ScoredBlock(
             block=b,

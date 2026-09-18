@@ -46,7 +46,7 @@ async def lint_text(
     blocks = await segment(engine, text)
     cats = [c for c in ruleset.categories if c.enabled]
 
-    block_scores = await score_blocks(engine, blocks, cats)
+    block_scores = await score_blocks(engine, blocks, cats, doc_lines=lines)
     skipped: list[dict[str, Any]] = []
     doc_cats = [c for c in cats if c.scope in (Scope.document, Scope.both)]
     if doc_cats and len(text) > STATE_DOC_LIMIT:
@@ -61,7 +61,7 @@ async def lint_text(
         for name, cs in sb.scores.items():
             cat = next(c for c in cats if c.name == name)
             if cs.score < cat.threshold and cat.locate:
-                tasks.append(locate_in_block(engine, sb.block, cat, text[:2000]))
+                tasks.append(locate_in_block(engine, sb.block, cat, lines))
     for name, cs in doc_scores.items():
         cat = next(c for c in cats if c.name == name)
         if cs.score < cat.threshold and cat.locate:
