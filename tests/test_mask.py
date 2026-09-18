@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock
 
-from jevapan.engine import Engine, ScoreResult
+from jevapan.engine import Engine, NoulResult, ScoreResult
 from jevapan.mask import analyze_syntax, masked_text
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
@@ -55,7 +55,7 @@ def test_masked_text_replaces_runs_with_placeholder() -> None:
 async def test_segment_forces_cut_around_excluded_code() -> None:
     """除外領域は連結を断つ。prob が全て切断なしでもブロックはまたがない。"""
     eng = Engine(client=AsyncMock(), sem=None)
-    eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
     text = "段落1。\n\n```\ncode();\n```\n\n段落2。"
     lines = text.splitlines()
     blocks = await segment(eng, text, analyze_syntax(lines))
@@ -66,7 +66,7 @@ async def test_segment_forces_cut_around_excluded_code() -> None:
 async def test_pipeline_document_score_uses_masked_text() -> None:
     """document scope の採点 state には除外領域の内容が入らない。"""
     eng = Engine(client=AsyncMock(), sem=None)
-    eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(1.9, 0.9)}
     )
@@ -96,7 +96,7 @@ async def test_locate_skips_excluded_candidates() -> None:
     """除外行の文は locate 候補にならない。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"s0": 0.9}
+        return_value=NoulResult(probs={"s0": 0.9})
     )
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(0.0, 0.0)}

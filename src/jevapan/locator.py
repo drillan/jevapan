@@ -5,7 +5,6 @@ from jevapan.engine import Engine
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
-LOCATE_THRESHOLD = 0.5
 # document locate の state(document スライス + 候補列)の文字数予算(概算)
 LOCATE_STATE_LIMIT = 32000
 
@@ -54,7 +53,7 @@ async def locate_in_block(
         return []
     # 対象ブロック直前の文脈(末尾側 ~2000字)を context に渡す
     context = "\n".join(doc_lines[: block.start - 1])[-2000:]
-    probs = await engine.noul_batch(
+    res = await engine.noul_batch(
         state={
             "context": context,
             "block": block.text,
@@ -72,12 +71,12 @@ async def locate_in_block(
             scope="block",
             category=category.name,
             severity=category.severity.value,
-            probability=probs[f"s{i}"],
+            probability=res.probs[f"s{i}"],
             text=t,
             col=col,
         )
         for i, (lr, col, t) in enumerate(cands)
-        if probs[f"s{i}"] >= LOCATE_THRESHOLD
+        if res.probs[f"s{i}"] >= category.locate_threshold
     ]
 
 
@@ -100,7 +99,7 @@ async def locate_in_document(
         raise StateTooLargeError(
             f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
         )
-    probs = await engine.noul_batch(
+    res = await engine.noul_batch(
         {"document": document, "candidates": cand_texts},
         questions={
             f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
@@ -114,10 +113,10 @@ async def locate_in_document(
             scope="document",
             category=category.name,
             severity=category.severity.value,
-            probability=probs[f"s{i}"],
+            probability=res.probs[f"s{i}"],
             text=t,
             col=col,
         )
         for i, (lr, col, t) in enumerate(cands)
-        if probs[f"s{i}"] >= LOCATE_THRESHOLD
+        if res.probs[f"s{i}"] >= category.locate_threshold
     ]

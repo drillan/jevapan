@@ -5,17 +5,50 @@ from unittest.mock import AsyncMock
 from jevapan.engine import Engine
 
 
-def _resp(answers: dict[str, Any]) -> Any:
-    return SimpleNamespace(answers=answers)
+def _resp(answers: dict[str, Any], model: str = "", usage: Any = None) -> Any:
+    return SimpleNamespace(answers=answers, model=model, usage=usage)
 
 
 async def test_noul_returns_probability() -> None:
     client = AsyncMock()
     client.system_one = AsyncMock(return_value=_resp({"q": SimpleNamespace(noul=0.7)}))
     eng = Engine(client=client, sem=None)
-    assert await eng.noul({"doc": "x"}, "is it good?") == 0.7
+    res = await eng.noul({"doc": "x"}, "is it good?")
+    assert res.probs["q"] == 0.7
     _, kw = client.system_one.call_args
     assert kw["state"] == {"doc": "x"}
+
+
+async def test_noul_batch_keeps_model_and_usage() -> None:
+    """応答の model と usage が NoulResult に保持される(閾値評価の再現性)。"""
+    client = AsyncMock()
+    client.system_one = AsyncMock(
+        return_value=_resp(
+            {"q": SimpleNamespace(noul=0.7)},
+            model="jev-1.13",
+            usage=SimpleNamespace(input_tokens=120, output_tokens=3),
+        )
+    )
+    eng = Engine(client=client, sem=None)
+    res = await eng.noul_batch({"doc": "x"}, {"q": "is it good?"})
+    assert res.probs["q"] == 0.7
+    assert res.model == "jev-1.13"
+    assert res.usage.input_tokens == 120 and res.usage.output_tokens == 3
+
+
+async def test_score_batch_keeps_model_and_usage() -> None:
+    client = AsyncMock()
+    client.system_one = AsyncMock(
+        return_value=_resp(
+            {"q": SimpleNamespace(score=1.0, confidence=0.5)},
+            model="jev-1.13",
+            usage=SimpleNamespace(input_tokens=50, output_tokens=4),
+        )
+    )
+    eng = Engine(client=client, sem=None)
+    out = await eng.score_batch("doc", {"q": ("instr", ["a", "b"])})
+    assert out["q"].model == "jev-1.13"
+    assert out["q"].usage.input_tokens == 50
 
 
 async def test_score_batch_splits_over_limit() -> None:

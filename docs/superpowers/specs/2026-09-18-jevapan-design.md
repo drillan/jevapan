@@ -72,6 +72,7 @@ src/jevapan/
 - 全段 `AsyncTypeSafeClient` + `asyncio.Semaphore(20)` で並列。実測で100並列が問題なかった実績あり
 - 同一 state への質問は1リクエストに fan-out する
 - エンジンは生 `typesafe-sdk`。pydantic-ai は構造化 state を質問に渡せず、境界判定・文特定の「候補を state で与える」形が書けないため不採用
+- **既知の制約(score ゲート)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る(recall は score ゲートに依存)。locate 側の確率閾値はカテゴリ別 `locate_threshold`(既定0.6)で調整可能
 
 ### 候補の列挙
 
@@ -100,6 +101,7 @@ categories:
       - 一部の節で内容が重複している
       - 各節が異なる役割を担い主張の重複がない
     locate: 候補文に問う Noul 質問  # 省略可。省略時はブロック単位の指摘まで。role条件化(先頭文/接続文/見出し等)と「引用・悪文の説明例・ルール定義の文は違反としない」の除外句を含める
+    locate_threshold: 0.6  # locate 確率を flag とする閾値。既定0.6、YAML でカテゴリ別に上書き可
 ```
 
 ### extends のマージ規則

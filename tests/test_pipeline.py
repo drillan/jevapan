@@ -1,13 +1,13 @@
 from unittest.mock import AsyncMock
 
-from jevapan.engine import Engine, ScoreResult
+from jevapan.engine import Engine, NoulResult, ScoreResult
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
 
 
 async def test_pipeline_skips_document_scope_over_limit() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
-    eng.noul_batch = AsyncMock(return_value={"b0": 0.0})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"b0": 0.0}))  # type: ignore[method-assign]
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(1.9, 0.9)}
     )
@@ -36,7 +36,7 @@ async def test_document_locate_state_overflow_is_skipped() -> None:
     """document locate の state(先頭16000字+候補列)が上限超過 → skipped で明示。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"s0": 0.9}
+        return_value=NoulResult(probs={"s0": 0.9})
     )
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(0.0, 0.0)}
@@ -65,7 +65,10 @@ async def test_pipeline_merges_duplicate_violations() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
     # block scope と document scope の locate が同じ文を指す → 1件に集約
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        side_effect=[{"s0": 0.9, "s1": 0.1}, {"s0": 0.8, "s1": 0.2}]
+        side_effect=[
+            NoulResult(probs={"s0": 0.9, "s1": 0.1}),
+            NoulResult(probs={"s0": 0.8, "s1": 0.2}),
+        ]
     )
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"concision": ScoreResult(0.5, 0.9)}
@@ -94,7 +97,7 @@ async def test_pipeline_does_not_merge_distinct_sentences() -> None:
     """同一行の別文は別 violation として残り、block 同士で 'both' に化けない。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"s0": 0.8, "s1": 0.9}
+        return_value=NoulResult(probs={"s0": 0.8, "s1": 0.9})
     )
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(0.5, 0.9)}
@@ -124,7 +127,7 @@ async def test_pipeline_does_not_merge_distinct_sentences() -> None:
 async def test_flag_without_locate_creates_block_violation() -> None:
     """locate 未指定カテゴリが flag されたとき、ブロック単位の violation を生成する。"""
     eng = Engine(client=AsyncMock(), sem=None)
-    eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(0.0, 0.9)}
     )
@@ -153,7 +156,7 @@ async def test_doc_flag_without_locate_creates_document_violation() -> None:
     """document scope で locate 未指定の flag は文書全体を範囲とする violation。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"b0": 0.0}
+        return_value=NoulResult(probs={"b0": 0.0})
     )
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
         return_value={"c": ScoreResult(0.0, 0.9)}

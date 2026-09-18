@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
-from jevapan.engine import Engine
+from jevapan.engine import Engine, NoulResult
 from jevapan.models import Block
 
 
@@ -89,7 +89,7 @@ async def segment(
     candidates = find_boundary_candidates(lines, excluded)
     windows = build_windows(lines, candidates)
 
-    async def ask(w: Window) -> dict[str, float]:
+    async def ask(w: Window) -> NoulResult:
         # 質問はウィンドウ内 index で参照。元行番号との対応はコードが管理
         return await engine.noul_batch(
             {"lines": lines[w.start : w.end + 1]},
@@ -97,7 +97,7 @@ async def segment(
         )
 
     results = await asyncio.gather(*(ask(w) for w in windows))
-    probs = {k: v for r in results for k, v in r.items()}
+    probs = {k: v for r in results for k, v in r.probs.items()}
     cuts = {j for i, j in candidates if probs[f"b{i}"] >= BOUNDARY_THRESHOLD}
     # 切断点は j の直前。空行・除外行は境界自体に属し、ブロック行範囲は
     # 非空・非除外行の範囲を使う。除外領域は連結を断つので必ず切断する。

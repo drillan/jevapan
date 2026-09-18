@@ -56,6 +56,7 @@ categories:
       - "悪い状態の説明"
       - "良い状態の説明"
     locate: "この文は〜である"  # 省略可。違反文特定の Noul 指示
+    locate_threshold: 0.6     # locate 確率の flag 閾値。既定0.6、カテゴリ別に上書き可
 ```
 
 ## 終了コード
@@ -98,7 +99,9 @@ uv run ruff check --fix . && uv run ruff format . && uv run mypy .
 - `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (行範囲, オフセット, text, category) は pipeline で1件に集約し、scope は実際の出現集合から求める({block,document}→'both')。probability は大きい方を採用する
 - 見出し行(`# まとめ` 等)も文候補として locate の対象になる。structure.locate が見出しを対象とするため候補に残す方針(設計メモ)
 - **構文領域の除外(製品仕様)**: fenced code block(```/~~~)、先頭の front matter(`---`〜`---`)、表行(`|` 始まり)は採点対象から除外する。表行はセル内に日本語 prose を含み得るが、行単位の除外を製品仕様として採用(セル単位の prose 抽出は将来検討)。裸の YAML/JSON「らしさ」判定などのヒューリスティックは入れない。除外は境界候補・採点本文・locate 候補に一貫適用し、除外行はブロックをまたがない(強制切断)。文脈(state の context/document フィールド)には残す。行番号・文字オフセットは原文の source map で保持し、行削除・再採番はしない
-- `threshold` の既定 1.5、`BOUNDARY_THRESHOLD`/`LOCATE_THRESHOLD` の 0.5 は初回値。実データで調整が要る
+- `threshold` の既定 1.5、`BOUNDARY_THRESHOLD` の 0.5 は初回値。実データで調整が要る
+- **locate_threshold 実測(2026-09-18, jev-1.13.0, E 精緻化後のルール文)**: `scripts/eval_thresholds.py` で samples/bad.md(159候補)の flag 件数は >=0.5:58 / >=0.6:38 / >=0.7:15 / >=0.8:4。samples/good.md(23候補)は >=0.5 でも 0 件で分離は良好。concision が最も閾値敏感(24→20→5→3)で naturalness は 0.5 のみ 2 件(0.6 で 0)。既定 0.6 は妥当な初回値と判断。カテゴリ別に `locate_threshold` を YAML で上書き可
+- **既知の制約(score ゲートの recall)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る。閾値検討用に `scripts/eval_thresholds.py` が locate の生確率を全候補分ダンプし、0.5/0.6/0.7/0.8 での採用件数を比較出力する(生確率・model・usage は JSON に保存): `TYPESAFE_API_KEY=... uv run python scripts/eval_thresholds.py samples/bad.md`
 - document scope の state 上限(現在は概算 32000 字で skip)
 - **境界判定の共有ウィンドウ**: 境界ペアは最大30ペアずつのグループに一意に割当てられ、各グループの対象範囲+前後余白(最大20行、合計 ~16000字の文字数予算内)を1つの state として共有する。質問はウィンドウ内 index で参照し、元行番号との対応はコードが管理する。余白内のペアは重複判定せず、ウィンドウ端を強制境界にしない。グループ単位のリクエストは semaphore 内で asyncio.gather により並列実行される
 - **既知の制約(state サイズ)**: document locate の state は「先頭16000字+全文の候補列」で、合計が概算 32000 字を超える場合は候補列を切り詰めず `locate_state_too_large` で skipped に記録する。locate の候補 state はカテゴリごとに再送される(同一ブロックの flag 済みカテゴリ×候補をまとめる余地あり)

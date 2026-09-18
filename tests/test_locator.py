@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock
 
-from jevapan.engine import Engine
+from jevapan.engine import Engine, NoulResult
 from jevapan.locator import locate_in_block, split_candidates
 from jevapan.models import Block
 from jevapan.ruleset import Category
@@ -23,7 +23,7 @@ async def test_locate_flags_high_probability_sentences() -> None:
         locate="empty phrase?",
     )
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"s0": 0.9, "s1": 0.2, "s2": 0.1}
+        return_value=NoulResult(probs={"s0": 0.9, "s1": 0.2, "s2": 0.1})
     )
     block = Block(1, 3, "a。b。c。")
     out = await locate_in_block(eng, block, cat, ["a。b。c。"])
@@ -35,7 +35,7 @@ async def test_locate_in_block_uses_preceding_context() -> None:
     """後半ブロックの locate で直前段落が state の context に含まれる。"""
     eng = Engine(client=AsyncMock(), sem=None)
     cat = Category(name="c", description="d", levels=["bad", "good"], locate="x?")
-    eng.noul_batch = AsyncMock(return_value={"s0": 0.1})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1}))  # type: ignore[method-assign]
     doc_lines = ["# 導入", "直前の段落。", "", "対象の文。"]
     block = Block(4, 4, "対象の文。")
     await locate_in_block(eng, block, cat, doc_lines)

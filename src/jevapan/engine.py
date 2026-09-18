@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from typesafe_sdk import JSONContent, Noul, Score
@@ -10,9 +10,41 @@ Questions = dict[str, Noul | Score]
 
 
 @dataclass
+class Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass
 class ScoreResult:
     score: float
     confidence: float
+    model: str = ""
+    usage: Usage = field(default_factory=Usage)
+
+
+@dataclass
+class NoulResult:
+    """noul/noul_batch の結果。確率に加えて model と usage を保持する
+    (閾値評価の再現性のため)。"""
+
+    probs: dict[str, float]
+    model: str = ""
+    usage: Usage = field(default_factory=Usage)
+
+
+def _usage_of(resp: Any) -> Usage:
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return Usage()
+    return Usage(
+        input_tokens=int(getattr(u, "input_tokens", 0) or 0),
+        output_tokens=int(getattr(u, "output_tokens", 0) or 0),
+    )
+
+
+def _model_of(resp: Any) -> str:
+    return str(getattr(resp, "model", "") or "")
 
 
 @dataclass
@@ -26,9 +58,13 @@ class Engine:
                 return await self.client.system_one(state=state, questions=questions)
         return await self.client.system_one(state=state, questions=questions)
 
-    async def noul(self, state: JSONContent, instructions: str) -> float:
+    async def noul(self, state: JSONContent, instructions: str) -> NoulResult:
         resp = await self._call(state, {"q": Noul(instructions=instructions)})
-        return float(resp.answers["q"].noul)
+        return NoulResult(
+            probs={"q": float(resp.answers["q"].noul)},
+            model=_model_of(resp),
+            usage=_usage_of(resp),
+        )
 
     async def score(
         self, state: JSONContent, instructions: str, levels: list[str]
@@ -37,12 +73,19 @@ class Engine:
             state, {"q": Score(instructions=instructions, criteria=levels)}
         )
         a = resp.answers["q"]
-        return ScoreResult(score=a.score, confidence=a.confidence)
+        return ScoreResult(
+            score=a.score,
+            confidence=a.confidence,
+            model=_model_of(resp),
+            usage=_usage_of(resp),
+        )
 
     async def noul_batch(
         self, state: JSONContent, questions: dict[str, str]
-    ) -> dict[str, float]:
-        out: dict[str, float] = {}
+    ) -> NoulResult:
+        probs: dict[str, float] = {}
+        usage = Usage()
+        model = ""
         keys = list(questions)
         for i in range(0, len(keys), MAX_QUESTIONS_PER_REQUEST):
             chunk = keys[i : i + MAX_QUESTIONS_PER_REQUEST]
@@ -50,8 +93,12 @@ class Engine:
                 state, {k: Noul(instructions=questions[k]) for k in chunk}
             )
             for k in chunk:
-                out[k] = float(resp.answers[k].noul)
-        return out
+                probs[k] = float(resp.answers[k].noul)
+            u = _usage_of(resp)
+            usage.input_tokens += u.input_tokens
+            usage.output_tokens += u.output_tokens
+            model = _model_of(resp) or model
+        return NoulResult(probs=probs, model=model, usage=usage)
 
     async def score_batch(
         self, state: JSONContent, questions: dict[str, tuple[str, list[str]]]
@@ -72,5 +119,10 @@ class Engine:
             )
             for k in chunk:
                 a = resp.answers[k]
-                out[k] = ScoreResult(score=a.score, confidence=a.confidence)
+                out[k] = ScoreResult(
+                    score=a.score,
+                    confidence=a.confidence,
+                    model=_model_of(resp),
+                    usage=_usage_of(resp),
+                )
         return out

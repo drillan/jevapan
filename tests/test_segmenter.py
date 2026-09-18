@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock
 
-from jevapan.engine import Engine
+from jevapan.engine import Engine, NoulResult
 from jevapan.segmenter import find_boundary_candidates, segment
 
 
@@ -14,7 +14,7 @@ async def test_segment_groups_lines_by_boundary() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
     # 境界: 0-1 なし, 1-2 あり, 2-3 なし → blocks [0-1],[2-3]
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"b0": 0.1, "b1": 0.9, "b2": 0.2}
+        return_value=NoulResult(probs={"b0": 0.1, "b1": 0.9, "b2": 0.2})
     )
     blocks = await segment(eng, "a\nb\nc\nd")
     assert [(b.start, b.end) for b in blocks] == [(1, 2), (3, 4)]
@@ -23,7 +23,7 @@ async def test_segment_groups_lines_by_boundary() -> None:
 async def test_segment_splits_blank_separated_paragraphs() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"b0": 0.9, "b2": 0.1}
+        return_value=NoulResult(probs={"b0": 0.9, "b2": 0.1})
     )
     blocks = await segment(eng, "a\n\nb\nc")
     # a→b で切断、b→c は切断しない → blocks [1],[3-4]
@@ -33,7 +33,7 @@ async def test_segment_splits_blank_separated_paragraphs() -> None:
 
 async def test_segment_empty_doc_returns_no_blocks() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
-    eng.noul_batch = AsyncMock(return_value={})  # type: ignore[method-assign]
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
     assert await segment(eng, "") == []
 
 
@@ -41,7 +41,7 @@ async def test_segment_short_doc_uses_single_window() -> None:
     """短い文書は1ウィンドウ。質問はウィンドウ内 index で参照する。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value={"b0": 0.1, "b1": 0.9, "b2": 0.2}
+        return_value=NoulResult(probs={"b0": 0.1, "b1": 0.9, "b2": 0.2})
     )
     blocks = await segment(eng, "a\nb\nc\nd")
     assert eng.noul_batch.call_count == 1
@@ -55,8 +55,8 @@ async def test_segment_long_doc_uses_shared_windows() -> None:
     """長い文書は複数ウィンドウ。全ペアが一意に担当され、state は部分列。"""
     eng = Engine(client=AsyncMock(), sem=None)
 
-    async def fake(state: object, questions: dict[str, str]) -> dict[str, float]:
-        return {k: 0.0 for k in questions}
+    async def fake(state: object, questions: dict[str, str]) -> NoulResult:
+        return NoulResult(probs={k: 0.0 for k in questions})
 
     eng.noul_batch = AsyncMock(side_effect=fake)  # type: ignore[method-assign]
     lines = [f"文{i}。" for i in range(80)]  # 79ペア → 複数ウィンドウ
@@ -80,8 +80,8 @@ async def test_segment_window_blocks_align_by_original_lines() -> None:
     # 50行 → 49ペア。ペア (30,31) のみ切断される
     lines = [f"文{i}。" for i in range(50)]
 
-    def flagged(state: object, questions: dict[str, str]) -> dict[str, float]:
-        return {k: 0.9 if k == "b30" else 0.0 for k in questions}
+    def flagged(state: object, questions: dict[str, str]) -> NoulResult:
+        return NoulResult(probs={k: 0.9 if k == "b30" else 0.0 for k in questions})
 
     eng.noul_batch = AsyncMock(side_effect=flagged)  # type: ignore[method-assign]
     blocks = await segment(eng, "\n".join(lines))

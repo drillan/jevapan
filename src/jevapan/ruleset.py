@@ -37,6 +37,8 @@ class Category(BaseModel):
     levels: list[str] = Field(default_factory=list)
     levels_document: list[str] | None = None
     locate: str | None = None
+    # locate Noul の採用確率閾値(カテゴリ単位で上書き可)。既定0.6
+    locate_threshold: float = 0.6
 
     @field_validator("levels")
     @classmethod
