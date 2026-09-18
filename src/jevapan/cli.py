@@ -8,6 +8,7 @@ from pathlib import Path
 from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
 
 from jevapan.engine import Engine
+from jevapan.models import LintResult
 from jevapan.pipeline import lint_text
 from jevapan.report import exit_code, fail_under_exit_code, render_human, render_json
 from jevapan.ruleset import load_effective_ruleset
@@ -38,6 +39,18 @@ def _iter_inputs(paths: list[str], recursive: bool) -> list[tuple[str, str]]:
     return out
 
 
+def _warn_skipped(results: list[LintResult]) -> None:
+    """skipped エントリを stderr に警告として出す。出力本体に埋もれないようにする。"""
+    for r in results:
+        for s in r.skipped:
+            target = s.get("category") or s.get("stage", "?")
+            loc = f" L{s['lines'][0]}-L{s['lines'][1]}" if "lines" in s else ""
+            print(
+                f"jvp: warning: {r.file}: {target}{loc} skipped ({s['reason']})",
+                file=sys.stderr,
+            )
+
+
 async def _run(args: argparse.Namespace) -> int:
     if args.concurrency < 1:
         print("jevapan: --concurrency must be >= 1", file=sys.stderr)
@@ -62,6 +75,7 @@ async def _run(args: argparse.Namespace) -> int:
     results = await asyncio.gather(
         *[lint_text(engine, text, ruleset, label) for label, text in inputs]
     )
+    _warn_skipped(results)
     if args.format == "json" or (args.format == "auto" and not sys.stdout.isatty()):
         print(
             json.dumps({"files": [render_json(r) for r in results]}, ensure_ascii=False)
