@@ -9,6 +9,7 @@ import pytest
 from jevapan.ruleset import load_ruleset, resolve_preset
 
 EXEMPTION = "引用"
+AUTHORSHIP = "著者自身の記述"
 
 ALL_PRESETS = ["base", "tech-doc", "blog"]
 
@@ -19,6 +20,18 @@ def test_every_locate_has_author_exemption(name: str) -> None:
     for c in rs.categories:
         if c.locate:
             assert EXEMPTION in c.locate, f"{name}.{c.name}"
+
+
+@pytest.mark.parametrize("name", ALL_PRESETS)
+def test_every_locate_requires_own_writing_condition(name: str) -> None:
+    """locate は「引用・ルール定義・悪文の説明例ではなく著者自身の記述として
+    違反している」を肯定条件として含む(引用等を著者の悪文と同一視しない)。"""
+    rs = load_ruleset(resolve_preset(name))
+    for c in rs.categories:
+        if c.locate:
+            assert AUTHORSHIP in c.locate, f"{name}.{c.name}"
+            assert "ルール定義" in c.locate, f"{name}.{c.name}"
+            assert "説明例" in c.locate, f"{name}.{c.name}"
 
 
 def test_structure_locate_is_role_conditioned() -> None:
