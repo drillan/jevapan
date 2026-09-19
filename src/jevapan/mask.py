@@ -65,6 +65,15 @@ def analyze_syntax(lines: list[str]) -> frozenset[int]:
     return frozenset(excluded)
 
 
+def masked_slice(lines: list[str], start: int, excluded: AbstractSet[int]) -> str:
+    """doc 行番号 start(1始まり)から始まる行断片を、doc レベルの
+    除外集合でマスクしたテキストを返す(ブロック採点の body 構築用)。
+    除外領域を内包するブロックのコード等を scorer に見せない。"""
+    return masked_text(
+        lines, {off for off in range(len(lines)) if start - 1 + off in excluded}
+    )
+
+
 def masked_text(lines: list[str], excluded: AbstractSet[int]) -> str:
     """除外行を連続領域ごとに1行のプレースホルダへ置き換えたテキストを返す。
     採点対象の本文用。行番号の対応は原文(lines)側で保持する。"""

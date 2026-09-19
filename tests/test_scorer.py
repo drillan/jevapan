@@ -2,6 +2,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, ScoreResult
+from jevapan.mask import MASK_PLACEHOLDER
 from jevapan.models import Block
 from jevapan.ruleset import Category, Scope
 from jevapan.scorer import score_blocks, score_document
@@ -129,6 +130,26 @@ async def test_score_blocks_passes_heading_and_preceding_prose() -> None:
     assert "code()" not in state["context"]
     assert "x = 1" not in state["context"]
     assert state["body"] == "対象ブロックの文。"
+
+
+async def test_score_blocks_masks_excluded_lines_in_body() -> None:
+    """除外行を内包するブロック(項目内 fence をまたぐリスト等)は、
+    scorer に渡す body で除外行をプレースホルダ化する。
+    コードを prose として採点する回帰を防ぐ(issue #8)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.5, 0.9)}
+    )
+    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
+    excluded = {1, 2, 3}
+    blocks = [Block(1, 5, "\n".join(doc_lines))]
+    await score_blocks(
+        eng, blocks, [_cat("structure")], doc_lines=doc_lines, excluded=excluded
+    )
+    body = eng.score_batch.call_args.kwargs["state"]["body"]
+    assert "code()" not in body and "```" not in body
+    assert MASK_PLACEHOLDER in body
+    assert "- 項目A" in body and "- 項目B" in body
 
 
 async def test_score_instructions_include_authorship_scope() -> None:
