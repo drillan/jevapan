@@ -103,23 +103,36 @@ async def test_mixed_model_run_is_marked_discard(tmp_path: Any) -> None:
     assert runs[0]["discard"] is True
 
 
-async def test_ec_variants_and_chunking(tmp_path: Any) -> None:
-    """E-C: 質問文5案 × Q=20 固定 × R 回。variant 名と質問文を記録し、
-    否定形は polarity を反転メタデータとして記録する。"""
+def _window_data(n_pairs: int = 20) -> dict[str, Any]:
+    return {
+        "window": {"source": "w.md", "lines": [f"L{i}" for i in range(60)]},
+        "labels": [
+            {"doc": "window", "i": i, "j": i + 1, "label": "either"}
+            for i in range(n_pairs)
+        ],
+    }
+
+
+async def test_ec_variants_on_fixed_window() -> None:
+    """E-C: 固定窓 W のペアを Q 個ずつ分割し質問文5案 × R 回。
+    state は毎回 W 全体で不変(E-A と同一素材)。否定形は
+    polarity を反転メタデータとして記録する。"""
     mod = _load()
-    doc = tmp_path / "doc.md"
-    # 21ペア以上 → Q=20 で2窓に割れる
-    doc.write_text("\n\n".join(f"段落{i}。" for i in range(22)), encoding="utf-8")
     eng = _FakeEngine()
-    runs = await mod.exp_ec(eng, [str(doc)], r=2, q=20)
+    runs = await mod.exp_ec(eng, _window_data(20), r=2, q=20)
     variants = {run["variant"] for run in runs}
     assert variants == set(mod.QUESTION_VARIANTS)
     neg = next(r for r in runs if r["variant"] == "negative")
     assert neg["polarity"] == -1
     cur = next(r for r in runs if r["variant"] == "current")
     assert cur["polarity"] == 1
-    # rep ごとに run が分かれる
+    # Q=20 → 1 req/run、variant ごとに rep 分の run
+    assert cur["n_requests"] == 1
+    assert len(cur["requests"][0]["state"]["lines"]) == 60
     assert sum(1 for r in runs if r["variant"] == "current") == 2
+    # Q を小さくすると req が分割される
+    runs = await mod.exp_ec(eng, _window_data(20), r=1, q=5)
+    assert runs[0]["n_requests"] == 4
 
 
 async def test_ea_chunks_pairs_by_q_and_keeps_state() -> None:

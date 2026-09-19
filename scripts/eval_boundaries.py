@@ -4,10 +4,11 @@
 - cache_check: 同一リクエストを連続2回送り、生確率が完全一致するか
   確認(最優先)。キャッシュがあれば反復実験の設計を見直すため結果を記録
 - E-E: 現行設定(候補列挙→build_windows→現行質問文)を対象文書に R 回
-- E-C: 質問文5案(現行/確信度明示/接合基準明確化/役割言語化/否定形)を
-  Q ペア/req 固定で R 回
-- E-A: 固定窓 W(scripts/boundary_eval_data.json)のラベル付きペアを
-  Q∈{1,5,20} で分割して R 回。state は毎回 W 全体で不変
+- E-C: 固定窓 W(scripts/boundary_eval_data.json)のラベル付きペアを
+  Q 個ずつ分割し、質問文5案(現行/確信度明示/接合基準明確化/
+  役割言語化/否定形)で R 回。state は毎回 W 全体で不変
+- E-A: 固定窓 W のラベル付きペアを Q∈{1,5,20} で分割して R 回。
+  state は毎回 W 全体で不変
 
 記録(eval_thresholds.py の設計踏襲):
 - リクエスト単位で state hash・質問キー・質問文・生確率・model・usage を
@@ -208,42 +209,37 @@ async def exp_ee(
 
 
 async def exp_ec(
-    engine: Engine, docs: Sequence[str], r: int = R_EC, q: int = EC_PAIRS
+    engine: Engine, data: dict[str, Any], r: int = R_EC, q: int = EC_PAIRS
 ) -> list[dict[str, Any]]:
-    """E-C: Q ペア/req 固定で質問文バリアントを R 回反復。"""
+    """E-C: 固定窓 W のラベル付きペアを Q 個ずつ分割し、質問文バリアントを
+    R 回反復。state は毎回 W 全体で不変(E-A と同一素材で直接比較する
+    ため全実験で同一の固定窓を使い交絡を切る)。"""
+    window_lines = data["window"]["lines"]
+    labels = [lb for lb in data["labels"] if lb["doc"] == "window"]
+    pairs = [(lb["i"], lb["j"]) for lb in labels]
     runs: list[dict[str, Any]] = []
-    for doc in docs:
-        text = Path(doc).read_text(encoding="utf-8")
-        lines, _, candidates = _doc_inputs(doc)
-        windows, uninspected = build_windows(lines, candidates, max_pairs=q)
-        for name, spec in QUESTION_VARIANTS.items():
-            fn: Callable[[int, int], str] = spec["fn"]
-            for rep in range(r):
-                run: dict[str, Any] = {
-                    "experiment": "E-C",
-                    "doc": doc,
-                    "rep": rep,
-                    "input_sha256": _input_hash(text),
-                    "n_candidates": len(candidates),
-                    "n_windows": len(windows),
-                    "uninspected": [list(p) for p in uninspected],
-                    "variant": name,
-                    "polarity": spec["polarity"],
-                    "params": {"q": q},
-                    "requests": [],
-                }
-                for w in windows:
-                    await _ask(
-                        engine,
-                        run["requests"],
-                        {"lines": lines[w.start : w.end + 1]},
-                        {f"b{i}": fn(i - w.start, j - w.start) for i, j in w.pairs},
-                        meta={
-                            "window": [w.start, w.end],
-                            "pairs": [list(p) for p in w.pairs],
-                        },
-                    )
-                runs.append(_finish_run(run))
+    for name, spec in QUESTION_VARIANTS.items():
+        fn: Callable[[int, int], str] = spec["fn"]
+        for rep in range(r):
+            run: dict[str, Any] = {
+                "experiment": "E-C",
+                "doc": data["window"]["source"],
+                "rep": rep,
+                "input_sha256": _input_hash(json.dumps(data, sort_keys=True)),
+                "variant": name,
+                "polarity": spec["polarity"],
+                "params": {"q": q, "labels": labels},
+                "requests": [],
+            }
+            for chunk in batched(pairs, q, strict=False):
+                await _ask(
+                    engine,
+                    run["requests"],
+                    {"lines": window_lines},
+                    {f"b{i}": fn(i, j) for i, j in chunk},
+                    meta={"pairs": [list(p) for p in chunk]},
+                )
+            runs.append(_finish_run(run))
     return runs
 
 
@@ -320,20 +316,20 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
 
     if "ee" in stages:
         out["runs"].extend(await exp_ee(engine, args.docs, r=args.rep_ee))
-    if "ec" in stages:
-        out["runs"].extend(
-            await exp_ec(engine, args.ec_docs or args.docs, r=args.rep_ec, q=args.q)
-        )
-    if "ea" in stages:
+    # E-C/E-A は同一の固定窓 W を使う(交絡を切るため全実験で同一素材)
+    data = None
+    if {"ec", "ea"} & stages:
         data_path = Path(args.data)
         if data_path.exists():
-            data = json.loads(data_path.read_text(encoding="utf-8"))
-            out["inputs"][str(data_path)] = {
-                "sha256": _input_hash(data_path.read_text(encoding="utf-8"))
-            }
-            out["runs"].extend(await exp_ea(engine, data, r=args.rep_ea))
+            raw = data_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            out["inputs"][str(data_path)] = {"sha256": _input_hash(raw)}
         else:
-            out["ea_skipped"] = f"data file not found: {data_path}"
+            out["data_missing"] = f"data file not found: {data_path}"
+    if "ec" in stages and data is not None:
+        out["runs"].extend(await exp_ec(engine, data, r=args.rep_ec, q=args.q))
+    if "ea" in stages and data is not None:
+        out["runs"].extend(await exp_ea(engine, data, r=args.rep_ea))
     return out
 
 
@@ -349,21 +345,24 @@ def plan(args: argparse.Namespace) -> dict[str, int]:
             windows, _ = build_windows(lines, candidates)
             n += len(windows)
         counts["E-E"] = n * args.rep_ee
-    if "ec" in args.stages:
-        n = 0
-        for doc in args.ec_docs or args.docs:
-            lines, _, candidates = _doc_inputs(doc)
-            windows, _ = build_windows(lines, candidates, max_pairs=args.q)
-            n += len(windows)
-        counts["E-C"] = n * len(QUESTION_VARIANTS) * args.rep_ec
-    if "ea" in args.stages:
+    n_pairs = -1
+    if {"ec", "ea"} & set(args.stages):
         data_path = Path(args.data)
         if data_path.exists():
             data = json.loads(data_path.read_text(encoding="utf-8"))
             n_pairs = sum(1 for lb in data["labels"] if lb["doc"] == "window")
-            counts["E-A"] = sum(-(-n_pairs // q) for q in args.ea_qs) * args.rep_ea
-        else:
-            counts["E-A"] = -1
+    if "ec" in args.stages:
+        counts["E-C"] = (
+            -(-n_pairs // args.q) * len(QUESTION_VARIANTS) * args.rep_ec
+            if n_pairs >= 0
+            else -1
+        )
+    if "ea" in args.stages:
+        counts["E-A"] = (
+            sum(-(-n_pairs // q) for q in args.ea_qs) * args.rep_ea
+            if n_pairs >= 0
+            else -1
+        )
     counts["total"] = sum(v for v in counts.values() if v > 0)
     return counts
 
@@ -373,8 +372,7 @@ def main() -> int:
         description="boundary segmentation eval (issue #2 stage 1)"
     )
     ap.add_argument("--docs", nargs="*", default=list(DEFAULT_DOCS))
-    ap.add_argument("--ec-docs", nargs="*", default=None)
-    ap.add_argument("--data", default=DEFAULT_DATA, help="E-A 固定窓データ JSON")
+    ap.add_argument("--data", default=DEFAULT_DATA, help="E-C/E-A 固定窓データ JSON")
     ap.add_argument("--out", default="eval_boundaries.json")
     ap.add_argument("--concurrency", type=int, default=5)
     ap.add_argument(
