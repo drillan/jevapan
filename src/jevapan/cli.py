@@ -18,12 +18,15 @@ def _load_dotenv(path: Path) -> None:
     """path の .env を簡易パースして os.environ に読み込む(issue #10)。
 
     受理する記法は最小サブセットのみ: KEY=VALUE・空行・# コメント行・
-    export 接頭辞・単純な引用符('...' / "...")。引用符なし値の
-    " #" 以降は行末コメントとして除去する。複数行値・変数展開・
+    export 接頭辞・単純な引用符('...' / "...")。キーは ASCII 識別子
+    のみとし、妥当でないキーの行は無視する。引用符なし値の " #" 以降・
+    閉じ引用符以降はコメントとして除去し、閉じ引用符の無い行は
+    壊れた値を入れず無視する。複数行値・変数展開・
     エスケープシーケンス等は対応しない割り切り。既存の環境変数は
-    上書きしない(環境変数優先)。ファイルが無ければ何もしない。"""
+    上書きしない(環境変数優先)。ファイルが無ければ何もしない。
+    BOM 付きでも読める。"""
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except OSError:
         return
     for raw in text.splitlines():
@@ -36,12 +39,17 @@ def _load_dotenv(path: Path) -> None:
         if not sep:
             continue
         key = key.strip()
+        if not (key.isascii() and key.isidentifier()):
+            continue
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+        if value[:1] in ("'", '"'):
+            end = value.find(value[0], 1)
+            if end == -1:
+                continue
+            value = value[1:end]
         else:
             value = value.split(" #", 1)[0].rstrip()
-        if key and key not in os.environ:
+        if key not in os.environ:
             os.environ[key] = value
 
 

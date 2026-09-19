@@ -60,9 +60,15 @@ def test_check_warns_skipped_on_stderr(monkeypatch: Any, capsys: Any) -> None:
         assert "L10-L12" in err
 
 
-def test_check_missing_api_key(monkeypatch: Any, capsys: Any) -> None:
+def test_check_missing_api_key(monkeypatch: Any, capsys: Any, tmp_path: Any) -> None:
+    # .env の有無でハーメティック性が変わる: cwd に .env がある環境では
+    # _load_dotenv がキーを再設定し「キー未設定」でなくなる(その場合は
+    # stdin 不可読で別経路の 2 になり検証が化ける)ため、.env の無い
+    # tmp_path に移してから検証する
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     assert main(["check", "-"]) == 2
+    assert "TYPESAFE_API_KEY" in capsys.readouterr().err
 
 
 def test_check_concurrency_zero_is_validation_error(
@@ -150,3 +156,39 @@ def test_check_loads_dotenv_from_cwd(
         me.return_value = AsyncMock()
         assert main(["check", "-", "--format", "json"]) == 0
     assert env["TYPESAFE_API_KEY"] == "from-dotenv"
+
+
+def test_load_dotenv_quoted_value_with_trailing_comment(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """引用符+行末コメントは閉じ引用符以降を切り捨て、引用符なしの
+    値を入れる。閉じ引用符が無い行は壊れた値を入れず無視する(K4)。"""
+    env: dict[str, str] = {}
+    monkeypatch.setattr(os, "environ", env)
+    (tmp_path / ".env").write_text(
+        'DQ="abc" # note\nSQ=\'x\' # c\nUNTERMINATED="abc\n',
+        encoding="utf-8",
+    )
+    _load_dotenv(tmp_path / ".env")
+    assert env == {"DQ": "abc", "SQ": "x"}
+
+
+def test_load_dotenv_accepts_bom(monkeypatch: Any, tmp_path: Any) -> None:
+    """BOM 付き .env も先頭キーを正しく読める(K5)。"""
+    env: dict[str, str] = {}
+    monkeypatch.setattr(os, "environ", env)
+    (tmp_path / ".env").write_bytes(b"\xef\xbb\xbfTYPESAFE_API_KEY=abc\n")
+    _load_dotenv(tmp_path / ".env")
+    assert env == {"TYPESAFE_API_KEY": "abc"}
+
+
+def test_load_dotenv_ignores_invalid_keys(monkeypatch: Any, tmp_path: Any) -> None:
+    """識別子として妥当でないキー名の行は無視する(K6)。"""
+    env: dict[str, str] = {}
+    monkeypatch.setattr(os, "environ", env)
+    (tmp_path / ".env").write_text(
+        "BAD KEY=v\n9NUM=v\nK-E-Y=v\nK.X=v\nOK_KEY=v\n",
+        encoding="utf-8",
+    )
+    _load_dotenv(tmp_path / ".env")
+    assert env == {"OK_KEY": "v"}
