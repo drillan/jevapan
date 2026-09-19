@@ -17,6 +17,44 @@ def test_candidates_pair_with_next_nonempty_line() -> None:
     assert find_boundary_candidates(lines) == [(0, 2), (2, 3), (3, 5)]
 
 
+def test_candidates_skip_same_list_item_pairs() -> None:
+    """同種リストマーカの連続は同一リストの継続で境界候補にしない
+    (構文判断はコードの責務)。リスト→非リストの遷移は候補に残す。"""
+    lines = ["- a", "- b", "- c", "text", "- d"]
+    # 0→1,1→2 は同一リスト内。2→3(リスト→prose),3→4(prose→リスト)は残す
+    assert find_boundary_candidates(lines) == [(2, 3), (3, 4)]
+
+
+def test_candidates_skip_loose_list_continuation() -> None:
+    """空行を挟んでも同種マーカなら同一リスト(loose list)。"""
+    lines = ["- a", "", "- b", "", "para"]
+    assert find_boundary_candidates(lines) == [(2, 4)]
+
+
+def test_candidates_keep_different_marker_transition() -> None:
+    """マーカ種別が変わる点は別リストの開始として候補に残す。"""
+    lines = ["- a", "* b", "1. c", "2. d", "1) e", "2) f"]
+    # -→*(別マーカ), *→1.(bullet→ordered), 1.→2.(同種skip),
+    # 2.→1)(区切り変更), 1)→2)(同種skip)
+    assert find_boundary_candidates(lines) == [(0, 1), (1, 2), (3, 4)]
+
+
+async def test_segment_does_not_ask_about_list_continuation() -> None:
+    """同一リスト内のペアは質問自体を送らない。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    asked: list[str] = []
+
+    async def fake(state: object, questions: dict[str, str]) -> NoulResult:
+        asked.extend(questions)
+        return NoulResult(probs={k: 0.9 for k in questions})
+
+    eng.noul_batch = AsyncMock(side_effect=fake)  # type: ignore[method-assign]
+    blocks = await segment(eng, "- a\n- b\n- c\ntail")
+    # 質問されるのは list→tail (b2) のみ。b0,b1 は問われない
+    assert asked == ["b2"]
+    assert [(b.start, b.end) for b in blocks] == [(1, 3), (4, 4)]
+
+
 async def test_segment_groups_lines_by_boundary() -> None:
     eng = Engine(client=AsyncMock(), sem=None)
     # 境界: 0-1 なし, 1-2 あり, 2-3 なし → blocks [0-1],[2-3]

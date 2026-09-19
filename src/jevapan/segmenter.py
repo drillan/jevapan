@@ -1,10 +1,27 @@
 import asyncio
+import re
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Any
 
 from jevapan.engine import Engine, NoulResult
 from jevapan.models import Block
+
+_BULLET_RE = re.compile(r"^\s{0,3}([-+*])(?:\s|$)")
+_ORDERED_RE = re.compile(r"^\s{0,3}\d{1,9}([.)])(?:\s|$)")
+
+
+def _list_marker(line: str) -> str | None:
+    """Markdown リスト項目のマーカ種別を返す(非リスト行は None)。
+    同種マーカの連続は同一リストの項目継続とみなす。CommonMark と同じく
+    異なる bullet 文字・異なる ordered 区切りは別リストとみなす。"""
+    m = _BULLET_RE.match(line)
+    if m:
+        return m.group(1)
+    m = _ORDERED_RE.match(line)
+    if m:
+        return "ordered" + m.group(1)
+    return None
 
 
 def _boundary_question(i: int, j: int) -> str:
@@ -36,7 +53,9 @@ def find_boundary_candidates(
     lines: list[str], excluded: AbstractSet[int] = frozenset()
 ) -> list[tuple[int, int]]:
     """各非空・非除外行 i と次の非空・非除外行 j のペア(0始まり)を返す。
-    空行は飛ばしても連結を維持するが、除外行は連結を断つ。"""
+    空行は飛ばしても連結を維持するが、除外行は連結を断つ。
+    同種リストマーカの連続(同一リストの項目継続)は構文的に同ブロックと
+    決まるため候補にしない(実測で退化1行ブロックの FP 温床だった)。"""
     cands: list[tuple[int, int]] = []
     prev: int | None = None
     for i, ln in enumerate(lines):
@@ -46,7 +65,9 @@ def find_boundary_candidates(
         if not ln.strip():
             continue
         if prev is not None:
-            cands.append((prev, i))
+            m = _list_marker(lines[prev])
+            if m is None or m != _list_marker(ln):
+                cands.append((prev, i))
         prev = i
     return cands
 
