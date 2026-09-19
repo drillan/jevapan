@@ -70,10 +70,15 @@ class Window:
 
 
 def find_boundary_candidates(
-    lines: list[str], excluded: AbstractSet[int] = frozenset()
+    lines: list[str],
+    excluded: AbstractSet[int] = frozenset(),
+    continuations: set[tuple[int, int]] | None = None,
 ) -> list[tuple[int, int]]:
     """各非空・非除外行 i と次の非空・非除外行 j のペア(0始まり)を返す。
-    空行は飛ばしても連結を維持するが、除外行は連結を断つ。
+    空行は飛ばしても連結を維持する。除外行はペアを直接結ばない
+    (質問 window が除外行を含んでしまうため)が、除外領域を挟んだペアが
+    同一リスト木の継続と構文一意に決まる場合は continuations に記録する
+    (issue #8: 項目内 fence を挟むリストの強制分割を抑える)。
     開いているリスト項目のコンテキスト(マーカ種別・content 列)を
     スタックで追跡し、同一リスト木の継続と構文的に決まるペアは候補に
     しない(実測で退化1行ブロックの FP 温床だった):
@@ -89,17 +94,23 @@ def find_boundary_candidates(
     stack: list[tuple[str, int, int]] = []
     prev: int | None = None
     blank_between = False
+    gap = False  # 直前の非空・非除外行との間に除外行が挟まっている
+    in_excluded_run = False  # 直前の行が除外行(除外領域の連続 run の内部)
     for i, ln in enumerate(lines):
         if i in excluded:
-            # 除外行の indent が最内項目の content 列未満なら項目を閉じる
-            # (トップレベルの fence・表行はリストを閉じる)
-            if ln.strip():
+            # 除外領域の先頭行の indent が最内項目の content 列未満なら
+            # 項目を閉じる(トップレベルの fence・表行はリストを閉じる)。
+            # run 内部の行(fence の内容行等)は opaque なコンテンツであり
+            # その indent は項目判定に使わない
+            if ln.strip() and not in_excluded_run:
                 ind = _indent(ln)
                 while stack and ind < stack[-1][2]:
                     stack.pop()
-            prev = None
+            in_excluded_run = True
+            gap = True
             blank_between = False
             continue
+        in_excluded_run = False
         if not ln.strip():
             blank_between = True
             continue
@@ -110,8 +121,7 @@ def find_boundary_candidates(
             # 継続行として抑制(空行を挟んでも構文一意)
             while stack and ind < stack[-1][2]:
                 stack.pop()
-            if prev is not None and not stack:
-                cands.append((prev, i))
+            suppressed = bool(stack)
         else:
             kind, content_col = item
             tight = not blank_between
@@ -121,10 +131,8 @@ def find_boundary_candidates(
                 while stack and stack[-1][1] > ind:
                     stack.pop()
             if stack and ind >= stack[-1][2]:
-                # 項目の内側へのネスト(種別不問)。tight なら抑制、
-                # loose なら候補に残すがコンテキストは積む
-                if prev is not None and not tight:
-                    cands.append((prev, i))
+                # 項目の内側へのネスト(種別不問)
+                suppressed = tight
                 stack.append((kind, ind, content_col))
             elif stack and ind >= stack[-1][1]:
                 # 同レベル兄弟: 同種マーカなら抑制して項目を置き換える。
@@ -134,14 +142,21 @@ def find_boundary_candidates(
                 # 同一リストの項目)
                 same = stack[-1][0] == kind
                 stack[-1] = (kind, min(stack[-1][1], ind), content_col)
-                if prev is not None and not (tight and same):
-                    cands.append((prev, i))
+                suppressed = tight and same
             else:
                 # 新規リスト(スタック空か先頭項目より浅い)
+                suppressed = False
                 stack.append((kind, ind, content_col))
-                if prev is not None:
-                    cands.append((prev, i))
+        if prev is not None:
+            if suppressed:
+                # 除外領域を挟むペアは質問にできないが、同一リスト木の
+                # 継続と構文一意に決まるなら切断不要として記録する
+                if gap and continuations is not None:
+                    continuations.add((prev, i))
+            elif not gap:
+                cands.append((prev, i))
         prev = i
+        gap = False
         blank_between = False
     return cands
 
@@ -208,7 +223,8 @@ async def segment(
     prose = [i for i, ln in enumerate(lines) if ln.strip() and i not in excluded]
     if not prose:
         return []
-    candidates = find_boundary_candidates(lines, excluded)
+    continuations: set[tuple[int, int]] = set()
+    candidates = find_boundary_candidates(lines, excluded, continuations)
     windows, uninspected = build_windows(lines, candidates)
     if skipped is not None:
         skipped.extend(
@@ -233,12 +249,14 @@ async def segment(
     asked = [p for w in windows for p in w.pairs]
     cuts = {j for i, j in asked if probs[f"b{i}"] >= BOUNDARY_THRESHOLD}
     # 切断点は j の直前。空行・除外行は境界自体に属し、ブロック行範囲は
-    # 非空・非除外行の範囲を使う。除外領域は連結を断つので必ず切断する。
+    # 非空・非除外行の範囲を使う。除外領域は連結を断つので原則切断するが、
+    # 同一リスト木の継続と構文一意に決まるペア(continuations)は切断しない
+    # (issue #8: 項目内 fence を挟むリストの退化ブロックを抑える)
     spans: list[tuple[int, int]] = []
     start = prose[0]
     for prev, cur in zip(prose, prose[1:], strict=False):
         excluded_between = any(k in excluded for k in range(prev + 1, cur))
-        if cur in cuts or excluded_between:
+        if cur in cuts or (excluded_between and (prev, cur) not in continuations):
             spans.append((start, prev))
             start = cur
     spans.append((start, prose[-1]))

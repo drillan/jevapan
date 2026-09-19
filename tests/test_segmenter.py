@@ -17,6 +17,45 @@ def test_candidates_pair_with_next_nonempty_line() -> None:
     assert find_boundary_candidates(lines) == [(0, 2), (2, 3), (3, 5)]
 
 
+def test_continuations_records_list_pairs_across_excluded() -> None:
+    """除外領域を挟むペアは質問できないが、同一リスト木の継続と
+    構文一意に決まる場合は continuations に記録する(issue #8)。
+    候補には入らない(質問 window が除外行を含んでしまうため)。"""
+    lines = ["- a", "  ```", "code", "  ```", "- b"]
+    excluded = analyze_syntax(lines)
+    cont: set[tuple[int, int]] = set()
+    cands = find_boundary_candidates(lines, excluded, continuations=cont)
+    assert cands == [] and cont == {(0, 4)}
+    # 項目内にインデントされた表行も項目を閉じず継続とみなす
+    lines = ["- a", "  | t |", "- b"]
+    excluded = analyze_syntax(lines)
+    cont = set()
+    cands = find_boundary_candidates(lines, excluded, continuations=cont)
+    assert cands == [] and cont == {(0, 2)}
+
+
+def test_continuations_empty_when_excluded_closes_list() -> None:
+    """トップレベルの fence・表行はリストを閉じるため、後続項目との
+    ペアは継続とみなさず切断する。"""
+    for lines in (
+        ["- a", "```", "code", "```", "- b"],
+        ["- a", "| x |", "- b"],
+    ):
+        excluded = analyze_syntax(lines)
+        cont: set[tuple[int, int]] = set()
+        cands = find_boundary_candidates(lines, excluded, continuations=cont)
+        assert cands == [] and cont == set()
+
+
+def test_continuations_empty_for_paragraph_after_excluded() -> None:
+    """除外領域の後に項目外の prose が来る場合は継続とみなさない。"""
+    lines = ["- a", "  ```", "code", "  ```", "tail"]
+    excluded = analyze_syntax(lines)
+    cont: set[tuple[int, int]] = set()
+    cands = find_boundary_candidates(lines, excluded, continuations=cont)
+    assert cands == [] and cont == set()
+
+
 def test_candidates_skip_same_list_item_pairs() -> None:
     """同種リストマーカの連続は同一リストの継続で境界候補にしない
     (構文判断はコードの責務)。リスト→非リストの遷移は候補に残す。"""
@@ -185,6 +224,47 @@ def test_candidates_keep_different_marker_transition() -> None:
     # -→*(別マーカ), *→1.(bullet→ordered), 1.→2.(同種skip),
     # 2.→1)(区切り変更), 1)→2)(同種skip)
     assert find_boundary_candidates(lines) == [(0, 1), (1, 2), (3, 4)]
+
+
+async def test_segment_keeps_list_blocks_around_item_fence() -> None:
+    """項目内 fence を挟んでも同一リスト木の継続は分割しない(issue #8)。
+    コード例つき手順リストで退化ブロックが頻出していた。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    text = "- 項目A\n  ```py\n  code\n  ```\n- 項目B\n- 項目C"
+    excluded = analyze_syntax(text.splitlines())
+    blocks = await segment(eng, text, excluded)
+    assert [(b.start, b.end) for b in blocks] == [(1, 6)]
+
+
+async def test_segment_splits_list_at_top_level_fence() -> None:
+    """トップレベル fence はリストを閉じる → 前後は別ブロック。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    text = "- a\n```\ncode\n```\n- b"
+    excluded = analyze_syntax(text.splitlines())
+    blocks = await segment(eng, text, excluded)
+    assert [(b.start, b.end) for b in blocks] == [(1, 1), (5, 5)]
+
+
+async def test_segment_splits_list_at_table_row() -> None:
+    """トップレベルの表行もリストを閉じる。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    text = "- a\n| x |\n- b"
+    excluded = analyze_syntax(text.splitlines())
+    blocks = await segment(eng, text, excluded)
+    assert [(b.start, b.end) for b in blocks] == [(1, 1), (3, 3)]
+
+
+async def test_segment_splits_paragraph_after_item_fence() -> None:
+    """項目内 fence の後に項目外 prose が来る場合は分割する(抑制しない)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    text = "- a\n  ```\ncode\n  ```\ntail"
+    excluded = analyze_syntax(text.splitlines())
+    blocks = await segment(eng, text, excluded)
+    assert [(b.start, b.end) for b in blocks] == [(1, 1), (5, 5)]
 
 
 async def test_segment_does_not_ask_about_list_continuation() -> None:
