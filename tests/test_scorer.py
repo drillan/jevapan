@@ -151,14 +151,14 @@ async def test_score_blocks_masks_excluded_lines_in_body() -> None:
     )
     body = eng.score_batch.call_args.kwargs["state"]["body"]
     assert "code()" not in body and "```" not in body
-    assert "[excluded: code block]" in body
+    assert "[除外: コードブロック]" in body
     assert "- 項目A" in body and "- 項目B" in body
 
 
 async def test_score_instructions_include_authorship_scope() -> None:
     """採点指示は「著者自身の記述を対象とする」条件句を常に含み、
     除外領域の有無に関わらず全文書・全ブロックで完全に同一である。
-    プレースホルダは `[excluded: <種別>]` の自己説明型のため
+    プレースホルダは `[除外: <種別>]` の自己説明型のため
     別途の説明文は付さない(issue #16 型回帰の根絶。issue #19)。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.score_batch = AsyncMock(  # type: ignore[method-assign]
@@ -184,7 +184,7 @@ async def test_score_instructions_include_authorship_scope() -> None:
 
     assert clean_instr == masked_instr
     assert "著者自身の記述" in clean_instr and "引用" in clean_instr
-    assert "[excluded" not in clean_instr
+    assert "[除外" not in clean_instr
 
 
 async def test_document_score_instructions_include_authorship_scope() -> None:
@@ -201,10 +201,10 @@ async def test_document_score_instructions_include_authorship_scope() -> None:
     eng.score_batch.reset_mock()
     await score_document(
         eng,
-        "前文。\n[excluded: code block]\n対象文。",
+        "前文。\n[除外: コードブロック]\n対象文。",
         [_cat("consistency", scope="document")],
     )
     masked_instr = eng.score_batch.call_args.kwargs["questions"]["consistency"][0]
 
     assert clean_instr == masked_instr
-    assert "著者自身の記述" in clean_instr and "[excluded" not in clean_instr
+    assert "著者自身の記述" in clean_instr and "[除外" not in clean_instr

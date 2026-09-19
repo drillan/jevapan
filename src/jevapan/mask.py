@@ -12,15 +12,16 @@ from collections.abc import Set as AbstractSet
 # - 閉じは同種・同長以上のフェンス文字のみで、末尾は空白以外許さない
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
-MASK_PLACEHOLDER = "[excluded]"
+MASK_PLACEHOLDER = "[除外]"
 
 
 class ExcludedSet(frozenset[int]):
-    """除外行 index の集合 + 各行の除外種別("code block"/"table"/
-    "front matter")のマッピング。analyze_syntax が返す。
+    """除外行 index の集合 + 各行の除外種別("コードブロック"/"表"/
+    "フロントマター")のマッピング。analyze_syntax が返す。
 
     `in`/`==`/len 等の集合としての振る舞いは frozenset と同一で、
-    種別は kinds 属性(行 index → 種別)で保持する。"""
+    種別は kinds 属性(行 index → 種別の日本語表示文字列)で保持する。
+    種別文字列はプレースホルダの表示にそのまま使われる。"""
 
     kinds: dict[int, str]
 
@@ -55,9 +56,11 @@ def _close_fence(line: str, fence: tuple[str, int]) -> bool:
 def analyze_syntax(lines: list[str]) -> ExcludedSet:
     """除外領域の行 index(0始まり)を ExcludedSet で返す。
 
-    kinds 属性に行 index → 除外種別("front matter"/"code block"/
-    "table")のマッピングを保持し、masked_text が自己説明型の
-    プレースホルダ `[excluded: <種別>]` を生成するために使う。
+    kinds 属性に行 index → 除外種別("フロントマター"/
+    "コードブロック"/"表")のマッピングを保持し、masked_text が
+    自己説明型のプレースホルダ `[除外: <種別>]` を生成するために使う。
+    種別は日本語表記で、英単語を数えるカテゴリ(anglicism 等)が
+    プレースホルダ自体を違反として数える衝突を構造的に防ぐ。
 
     対象:
     - front matter: 先頭行の `---` から次の `---` まで(閉じがなければ保留)
@@ -71,7 +74,7 @@ def analyze_syntax(lines: list[str]) -> ExcludedSet:
         for k in range(1, len(lines)):
             if lines[k].strip() == "---":
                 excluded.update(range(k + 1))
-                kinds.update(dict.fromkeys(range(k + 1), "front matter"))
+                kinds.update(dict.fromkeys(range(k + 1), "フロントマター"))
                 start = k + 1
                 break
 
@@ -79,7 +82,7 @@ def analyze_syntax(lines: list[str]) -> ExcludedSet:
     for i in range(start, len(lines)):
         if fence is not None:
             excluded.add(i)
-            kinds[i] = "code block"
+            kinds[i] = "コードブロック"
             if _close_fence(lines[i], fence):
                 fence = None
             continue
@@ -87,10 +90,10 @@ def analyze_syntax(lines: list[str]) -> ExcludedSet:
         if opened is not None:
             fence = opened
             excluded.add(i)
-            kinds[i] = "code block"
+            kinds[i] = "コードブロック"
         elif lines[i].lstrip().startswith("|"):
             excluded.add(i)
-            kinds[i] = "table"
+            kinds[i] = "表"
     return ExcludedSet(excluded, kinds)
 
 
@@ -98,7 +101,9 @@ def masked_slice(lines: list[str], start: int, excluded: AbstractSet[int]) -> st
     """doc 行番号 start(1始まり)から始まる行断片を、doc レベルの
     除外集合でマスクしたテキストを返す(ブロック採点の body 構築用)。
     除外領域を内包するブロックのコード等を scorer に見せない。"""
-    offs = {off for off in range(len(lines)) if start - 1 + off in excluded}
+    offs: AbstractSet[int] = {
+        off for off in range(len(lines)) if start - 1 + off in excluded
+    }
     kinds = getattr(excluded, "kinds", None)
     if kinds:
         offs = ExcludedSet(
@@ -113,8 +118,8 @@ def masked_text(lines: list[str], excluded: AbstractSet[int]) -> str:
     採点対象の本文用。行番号の対応は原文(lines)側で保持する。
 
     除外集合が種別情報(ExcludedSet.kinds)を持つ場合は自己説明型の
-    `[excluded: <種別>]` を出す。種別が得られない入力(素の set 等)は
-    従来の `[excluded]` にフォールバックする。連続する除外領域が
+    `[除外: <種別>]` を出す。種別が得られない入力(素の set 等)は
+    `[除外]` にフォールバックする。連続する除外領域が
     種別をまたぐ場合は種別ごとに別々のプレースホルダを出す。"""
     kinds = getattr(excluded, "kinds", None) or {}
     out: list[str] = []
@@ -124,7 +129,7 @@ def masked_text(lines: list[str], excluded: AbstractSet[int]) -> str:
         if i in excluded:
             kind = kinds.get(i)
             if not in_excluded or kind != prev_kind:
-                out.append(f"[excluded: {kind}]" if kind else MASK_PLACEHOLDER)
+                out.append(f"[除外: {kind}]" if kind else MASK_PLACEHOLDER)
             in_excluded = True
             prev_kind = kind
         else:

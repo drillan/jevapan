@@ -59,13 +59,13 @@ async def test_locate_in_block_masks_excluded_lines_in_state() -> None:
     await locate_in_block(eng, block, cat, doc_lines, excluded)
     shown = eng.noul_batch.call_args.kwargs["state"]["block"]
     assert "code()" not in shown and "```" not in shown
-    assert "[excluded: code block]" in shown
+    assert "[除外: コードブロック]" in shown
     assert "- 項目A" in shown and "- 項目B" in shown
 
 
 async def test_locate_questions_identical_regardless_of_excluded() -> None:
     """locate の質問文は除外領域の有無に関わらず完全に同一である
-    (block/document 両経路)。プレースホルダは `[excluded: <種別>]`
+    (block/document 両経路)。プレースホルダは `[除外: <種別>]`
     の自己説明型のため別途の説明文は付さない(issue #19)。"""
     eng = Engine(client=AsyncMock(), sem=None)
     cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
@@ -86,7 +86,7 @@ async def test_locate_questions_identical_regardless_of_excluded() -> None:
     masked_q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
 
     assert clean_q == masked_q == f"{cat.locate} Candidate: `candidates[0]`"
-    assert "[excluded" not in clean_q
+    assert "[除外" not in clean_q
 
     # document 経路も同様
     eng.noul_batch.reset_mock()
@@ -97,12 +97,12 @@ async def test_locate_questions_identical_regardless_of_excluded() -> None:
     eng.noul_batch.reset_mock()
     eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1, "s1": 0.1})
     await locate_in_document(
-        eng, "前文。\n[excluded: code block]\n対象文。", cat, doc_lines, excluded
+        eng, "前文。\n[除外: コードブロック]\n対象文。", cat, doc_lines, excluded
     )
     masked_q = eng.noul_batch.call_args.args[1]["s0"]
 
     assert clean_q == masked_q
-    assert "[excluded" not in clean_q
+    assert "[除外" not in clean_q
 
 
 async def test_locate_in_document_does_not_truncate_state() -> None:
