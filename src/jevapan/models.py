@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from jevapan.engine import CallRecord
     from jevapan.scorer import CategoryScore, ScoredBlock
 
 
@@ -50,3 +51,6 @@ class LintResult:
     violations: list[Violation]
     skipped: list[dict[str, Any]]
     summary: dict[str, Any] = field(default_factory=dict)
+    # 1 API リクエスト=1 CallRecord。usage 集計はここから行う
+    # (ScoreResult.usage はリクエスト単位で複製されているため使わない)
+    calls: list["CallRecord"] = field(default_factory=list)

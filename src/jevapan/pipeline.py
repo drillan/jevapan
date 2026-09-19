@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Coroutine
 from typing import Any
 
-from jevapan.engine import Engine
+from jevapan.engine import USAGE_LOG, CallRecord, Engine
 from jevapan.locator import (
     StateTooLargeError,
     locate_in_block,
@@ -52,6 +52,23 @@ def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
 async def lint_text(
     engine: Engine, text: str, ruleset: Ruleset, file_label: str
 ) -> LintResult:
+    # ファイルごとのリクエストログ。contextvar なので同一 Engine を共有する
+    # 並列 lint_text でも帰属が混ざらない。例外時も reset して漏らさない
+    usage_log: list[CallRecord] = []
+    token = USAGE_LOG.set(usage_log)
+    try:
+        return await _lint_text(engine, text, ruleset, file_label, usage_log)
+    finally:
+        USAGE_LOG.reset(token)
+
+
+async def _lint_text(
+    engine: Engine,
+    text: str,
+    ruleset: Ruleset,
+    file_label: str,
+    usage_log: list[CallRecord],
+) -> LintResult:
     lines = text.splitlines() or [""]
     cats = [c for c in ruleset.categories if c.enabled]
     # 構文領域は文書全体で一度だけ解析し、行番号を保つ source map として共有
@@ -82,6 +99,7 @@ async def lint_text(
             violations=[],
             skipped=skipped,
             summary={"blocks": 0, "violations": 0, "errors": 0},
+            calls=usage_log,
         )
 
     blocks = await segment(engine, text, excluded, skipped=skipped)
@@ -161,4 +179,5 @@ async def lint_text(
             "violations": len(violations),
             "errors": sum(1 for v in violations if v.severity == "error"),
         },
+        calls=usage_log,
     )

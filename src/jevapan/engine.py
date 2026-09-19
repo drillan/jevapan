@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,6 +9,14 @@ from typesafe_sdk import JSONContent, Noul, Score
 MAX_QUESTIONS_PER_REQUEST = 50
 
 Questions = dict[str, Noul | Score]
+
+# 1 API リクエストごとの usage/model を記録するログ。lint_text がファイル
+# ごとに set するため、同一 Engine を共有する並列実行でも帰属が壊れない。
+# score_batch はリクエスト全体の usage を各回答に複製するため、集計は
+# 必ずこのログ(リクエスト単位)から行う
+USAGE_LOG: ContextVar[list["CallRecord"] | None] = ContextVar(
+    "jevapan_usage_log", default=None
+)
 
 
 def payload_chars(state: Any, questions: dict[str, Any] | None = None) -> int:
@@ -62,6 +71,22 @@ def _model_of(resp: Any) -> str:
 
 
 @dataclass
+class CallRecord:
+    """1 API リクエスト分の記録。stage は Engine メソッド名
+    (noul/score/noul_batch/score_batch)。"""
+
+    stage: str
+    model: str
+    usage: Usage
+
+
+def _record_call(stage: str, resp: Any) -> None:
+    log = USAGE_LOG.get()
+    if log is not None:
+        log.append(CallRecord(stage, _model_of(resp), _usage_of(resp)))
+
+
+@dataclass
 class Engine:
     client: Any  # AsyncTypeSafeClient(テストではモックを差す)
     sem: asyncio.Semaphore | None
@@ -74,6 +99,7 @@ class Engine:
 
     async def noul(self, state: JSONContent, instructions: str) -> NoulResult:
         resp = await self._call(state, {"q": Noul(instructions=instructions)})
+        _record_call("noul", resp)
         return NoulResult(
             probs={"q": float(resp.answers["q"].noul)},
             model=_model_of(resp),
@@ -86,6 +112,7 @@ class Engine:
         resp = await self._call(
             state, {"q": Score(instructions=instructions, criteria=levels)}
         )
+        _record_call("score", resp)
         a = resp.answers["q"]
         return ScoreResult(
             score=a.score,
@@ -108,6 +135,7 @@ class Engine:
             )
             for k in chunk:
                 probs[k] = float(resp.answers[k].noul)
+            _record_call("noul_batch", resp)
             u = _usage_of(resp)
             usage.input_tokens += u.input_tokens
             usage.output_tokens += u.output_tokens
@@ -117,6 +145,9 @@ class Engine:
     async def score_batch(
         self, state: JSONContent, questions: dict[str, tuple[str, list[str]]]
     ) -> dict[str, ScoreResult]:
+        """注意: 各 ScoreResult.usage はリクエスト全体の usage の複製。
+        合算すると重複計上になるため、集計には使わず USAGE_LOG /
+        LintResult.calls(リクエスト単位)から行うこと。"""
         out: dict[str, ScoreResult] = {}
         keys = list(questions)
         for i in range(0, len(keys), MAX_QUESTIONS_PER_REQUEST):
@@ -131,6 +162,7 @@ class Engine:
                     for k in chunk
                 },
             )
+            _record_call("score_batch", resp)
             for k in chunk:
                 a = resp.answers[k]
                 out[k] = ScoreResult(

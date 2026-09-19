@@ -4,6 +4,17 @@ from typing import Any
 from jevapan.models import LintResult
 
 
+def _usage_summary(result: LintResult) -> dict[str, Any]:
+    """calls(リクエスト単位)から集計。ScoreResult.usage の合算は
+    重複計上になるため使わない。"""
+    return {
+        "calls": len(result.calls),
+        "input_tokens": sum(c.usage.input_tokens for c in result.calls),
+        "output_tokens": sum(c.usage.output_tokens for c in result.calls),
+        "models": sorted({c.model for c in result.calls if c.model}),
+    }
+
+
 def render_json(result: LintResult) -> dict[str, Any]:
     return {
         "file": result.file,
@@ -40,6 +51,7 @@ def render_json(result: LintResult) -> dict[str, Any]:
         ],
         "skipped": result.skipped,
         "summary": result.summary,
+        "usage": _usage_summary(result),
     }
 
 
@@ -62,6 +74,12 @@ def render_human(result: LintResult) -> str:
         name = s.get("category", s.get("stage", "?"))
         loc = f" L{s['lines'][0]}-{s['lines'][1]}" if "lines" in s else ""
         out.append(f"  skipped: {name} ({s['reason']}){loc}")
+    u = _usage_summary(result)
+    models = f" [{', '.join(u['models'])}]" if u["models"] else ""
+    out.append(
+        f"  usage: {u['calls']} calls, "
+        f"input={u['input_tokens']}, output={u['output_tokens']}{models}"
+    )
     return "\n".join(out)
 
 
