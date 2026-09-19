@@ -4,7 +4,7 @@ from contextvars import ContextVar
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
-from jevapan.mask import MASK_PLACEHOLDER, PLACEHOLDER_NOTE, masked_slice
+from jevapan.mask import masked_slice
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
@@ -70,12 +70,10 @@ async def locate_in_block(
         "block": masked_slice(block.text.splitlines(), block.start, excluded),
         "candidates": [t for _, _, t in cands],
     }
-    # [excluded] の説明は masked state にプレースホルダが混入するときだけ
-    # 付す。除外領域なしの文書では無関係な指示による水準シフトを防ぐ
-    # (issue #16)
-    note = f" {PLACEHOLDER_NOTE}" if MASK_PLACEHOLDER in state["block"] else ""
+    # 質問文は入力に関わらず完全に同一にする。プレースホルダは
+    # `[excluded: <種別>]` の自己説明型(issue #19)
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`{note}"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
@@ -121,11 +119,9 @@ async def locate_in_document(
     # document は切り詰めない。上限超過は下の payload チェックで
     # StateTooLargeError とし、呼出し側が skipped に記録する(issue #12)
     state = {"document": text, "candidates": [t for _, _, t in cands]}
-    # [excluded] の説明は masked document にプレースホルダが混入するとき
-    # だけ付す(issue #16)
-    note = f" {PLACEHOLDER_NOTE}" if MASK_PLACEHOLDER in text else ""
+    # block 経路と同様、質問文は入力に関わらず完全に同一にする(issue #19)
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`{note}"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:

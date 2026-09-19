@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult, ScoreResult
-from jevapan.mask import MASK_PLACEHOLDER
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
 
@@ -87,7 +86,7 @@ async def test_document_locate_receives_masked_document() -> None:
     )
     await lint_text(eng, "前文。\n```\ncode()\n```", rs, "f.md")
     doc = eng.noul_batch.call_args.args[0]["document"]
-    assert "code()" not in doc and MASK_PLACEHOLDER in doc
+    assert "code()" not in doc and "[除外: コードブロック]" in doc
 
 
 async def test_pipeline_merges_duplicate_violations() -> None:

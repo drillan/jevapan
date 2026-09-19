@@ -251,7 +251,7 @@ class _FakeTypedClient:
         )()
 
 
-def _eb_window_stub(mod: ModuleType, monkeypatch: Any, pairs: list) -> Any:
+def _eb_window_stub(mod: ModuleType, monkeypatch: Any, pairs: list[Any]) -> Any:
     w = type("W", (), {"start": 0, "end": 19, "pairs": pairs})()
     monkeypatch.setattr(mod, "build_windows", lambda lines, cands: ([w], []))
     monkeypatch.setattr(mod, "find_boundary_candidates", lambda lines, ex, s: [])

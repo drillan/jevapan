@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult
 from jevapan.locator import locate_in_block, locate_in_document, split_candidates
-from jevapan.mask import MASK_PLACEHOLDER
+from jevapan.mask import analyze_syntax
 from jevapan.models import Block
 from jevapan.ruleset import Category
 
@@ -54,54 +54,55 @@ async def test_locate_in_block_masks_excluded_lines_in_state() -> None:
     cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
     eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1, "s1": 0.1}))  # type: ignore[method-assign]
     doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
-    excluded = {1, 2, 3}
+    excluded = analyze_syntax(doc_lines)
     block = Block(1, 5, "\n".join(doc_lines))
     await locate_in_block(eng, block, cat, doc_lines, excluded)
     shown = eng.noul_batch.call_args.kwargs["state"]["block"]
     assert "code()" not in shown and "```" not in shown
-    assert MASK_PLACEHOLDER in shown
+    assert "[除外: コードブロック]" in shown
     assert "- 項目A" in shown and "- 項目B" in shown
 
 
-async def test_locate_questions_explain_excluded_placeholder() -> None:
-    """locate の質問に [excluded] 説明を付すのは、state の masked 入力に
-    実際にプレースホルダが含まれるときだけ(block/document 両経路)。
-    除外領域なしの文書では無関係な説明文で水準シフトしない(issue #16)。"""
+async def test_locate_questions_identical_regardless_of_excluded() -> None:
+    """locate の質問文は除外領域の有無に関わらず完全に同一である
+    (block/document 両経路)。プレースホルダは `[除外: <種別>]`
+    の自己説明型のため別途の説明文は付さない(issue #19)。"""
     eng = Engine(client=AsyncMock(), sem=None)
     cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
         return_value=NoulResult(probs={"s0": 0.1, "s1": 0.1})
     )
 
-    # 除外領域なし → 説明は付かない
+    # 除外領域なし
     block = Block(1, 1, "対象文。")
     await locate_in_block(eng, block, cat, ["対象文。"])
-    q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
-    assert "[excluded]" not in q
+    clean_q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
 
+    # 除外領域をまたぐ入力でも質問文は同一
+    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
+    excluded = analyze_syntax(doc_lines)
+    block = Block(1, 5, "\n".join(doc_lines))
+    await locate_in_block(eng, block, cat, doc_lines, excluded)
+    masked_q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
+
+    assert clean_q == masked_q == f"{cat.locate} Candidate: `candidates[0]`"
+    assert "[除外" not in clean_q
+
+    # document 経路も同様
     eng.noul_batch.reset_mock()
     eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1})
     await locate_in_document(eng, "対象文。", cat, ["対象文。"])
-    q = eng.noul_batch.call_args.args[1]["s0"]
-    assert "[excluded]" not in q
-
-    # 除外領域をまたぐ入力 → masked state に placeholder があり説明が付く
-    eng.noul_batch.reset_mock()
-    eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1, "s1": 0.1})
-    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
-    excluded = {1, 2, 3}
-    block = Block(1, 5, "\n".join(doc_lines))
-    await locate_in_block(eng, block, cat, doc_lines, excluded)
-    q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
-    assert "[excluded]" in q and "評価対象の文章ではない" in q
+    clean_q = eng.noul_batch.call_args.args[1]["s0"]
 
     eng.noul_batch.reset_mock()
     eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1, "s1": 0.1})
     await locate_in_document(
-        eng, "前文。\n[excluded]\n対象文。", cat, doc_lines, excluded
+        eng, "前文。\n[除外: コードブロック]\n対象文。", cat, doc_lines, excluded
     )
-    q = eng.noul_batch.call_args.args[1]["s0"]
-    assert "[excluded]" in q and "評価対象の文章ではない" in q
+    masked_q = eng.noul_batch.call_args.args[1]["s0"]
+
+    assert clean_q == masked_q
+    assert "[除外" not in clean_q
 
 
 async def test_locate_in_document_does_not_truncate_state() -> None:
