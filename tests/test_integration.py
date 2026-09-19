@@ -35,6 +35,7 @@ BLOCK_CATEGORIES = {
     "concision",
     "voice",
     "naturalness",
+    "anglicism",
     "substance",
 }
 DOC_CATEGORIES = {"concision", "consistency"}
