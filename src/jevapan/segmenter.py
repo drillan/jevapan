@@ -18,7 +18,8 @@ def _list_item(line: str) -> tuple[str, int] | None:
     lazy continuation 判定に使う。
 
     同種マーカの連続は同一リストの項目継続とみなす。CommonMark と同じく
-    異なる bullet 文字・異なる ordered 区切りは別リストとみなす。
+    異なる bullet 文字・異なる ordered 区切りは別リストとみなすが、
+    この区別が効くのは同レベル兄弟の判定のみ(ネスト判定は種別不問)。
     空白は半角スペースのみ(mask.py の _FENCE_RE と揃える)。タブは
     expandtabs(4) で4桁タブストップに展開してから判定する。任意の
     空白インデントのネスト項目を認める。4文字以上のインデント項目は
@@ -78,7 +79,8 @@ def find_boundary_candidates(
     しない(実測で退化1行ブロックの FP 温床だった):
     - 最内項目の content 列以上にインデントされた非マーカ継続行
       (空行を挟んでも同一項目と構文一意に決まる)
-    - content 列以上にインデントされたマーカ行 = ネスト項目(種別不問)
+    - 最内項目(dedent 後は祖先項目)の content 列以上のマーカ行
+      = ネスト項目(種別不問)
     - dedent 後の同レベル・同種マーカ = 兄弟項目
     構文抑制は tight 連続のみで、空行を挟む loose な項目ペアは
     Jev の意味判定に委ねる。"""
@@ -89,6 +91,12 @@ def find_boundary_candidates(
     blank_between = False
     for i, ln in enumerate(lines):
         if i in excluded:
+            # 除外行の indent が最内項目の content 列未満なら項目を閉じる
+            # (トップレベルの fence・表行はリストを閉じる)
+            if ln.strip():
+                ind = _indent(ln)
+                while stack and ind < stack[-1][2]:
+                    stack.pop()
             prev = None
             blank_between = False
             continue
@@ -107,24 +115,27 @@ def find_boundary_candidates(
         else:
             kind, content_col = item
             tight = not blank_between
+            # 最内項目の内側でない場合はより深い項目を閉じ(dedent)、
+            # 新しい最内項目に対して nest/兄弟/新規を再判定する
+            if not (stack and ind >= stack[-1][2]):
+                while stack and stack[-1][1] > ind:
+                    stack.pop()
             if stack and ind >= stack[-1][2]:
-                # 最内項目の内側: ネスト項目として抑制(種別不問)。
+                # 項目の内側へのネスト(種別不問)。tight なら抑制、
                 # loose なら候補に残すがコンテキストは積む
                 if prev is not None and not tight:
                     cands.append((prev, i))
                 stack.append((kind, ind, content_col))
-            else:
-                # dedent: より深い項目を閉じ、同レベルなら兄弟項目として
-                # 置き換える。同種マーカの tight な兄弟のみ抑制
-                while stack and stack[-1][1] > ind:
-                    stack.pop()
-                same = False
-                if stack and stack[-1][1] == ind:
-                    same = stack[-1][0] == kind
-                    stack[-1] = (kind, ind, content_col)
-                else:
-                    stack.append((kind, ind, content_col))
+            elif stack and ind >= stack[-1][1]:
+                # 同レベル兄弟: 同種マーカなら抑制して項目を置き換える
+                same = stack[-1][0] == kind
+                stack[-1] = (kind, ind, content_col)
                 if prev is not None and not (tight and same):
+                    cands.append((prev, i))
+            else:
+                # 新規リスト(スタック空か先頭項目より浅い)
+                stack.append((kind, ind, content_col))
+                if prev is not None:
                     cands.append((prev, i))
         prev = i
         blank_between = False

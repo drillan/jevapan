@@ -57,10 +57,47 @@ def test_candidates_skip_mixed_marker_nesting() -> None:
 
 
 def test_nested_marker_below_content_column_is_candidate() -> None:
-    """content 列未満のマーカ行はネストとみなさず dedent 判定する。"""
-    # `1. ` の content 列は3。インデント2の bullet は子ではない
+    """content 列未満のマーカ行はネストとみなさず dedent 判定する。
+    同レベル兄弟でもマーカ種別が違えば別リストとして候補に残す。"""
+    # `1. ` の content 列は3。インデント2の bullet は子ではなく異種兄弟
     lines = ["1. 手順", "  - 補足"]
     assert find_boundary_candidates(lines) == [(0, 1)]
+
+
+def test_dedent_reapplies_sibling_rule() -> None:
+    """dedent の pop 後、新しい最内項目に対して nest/兄弟規則を再適用する。
+    ` - b`(インデント1)は `- a` の同レベル同種兄弟として抑制される。"""
+    lines = ["- a", " - b", "- c"]
+    # 0→1 は兄弟で抑制。1→2 は ` - b` が ` - a` を置き換えたため新規扱い
+    assert find_boundary_candidates(lines) == [(1, 2)]
+
+
+def test_dedent_reapplies_sibling_rule_ordered() -> None:
+    """ordered でも同様に dedent 後の兄弟規則が効く(番号差は同種扱い)。"""
+    lines = ["1. a", "  2. b", "3. c"]
+    assert find_boundary_candidates(lines) == [(1, 2)]
+
+
+def test_dedent_renests_into_ancestor_item() -> None:
+    """深いネストからの dedent でも、祖先項目の content 列以上なら
+    祖先へのネストとして抑制する。"""
+    lines = ["- a", "      - b", "    - c"]
+    # `    - c`(インデント4)は `- a` の content 列2以上 → 祖先へのネスト
+    assert find_boundary_candidates(lines) == []
+
+
+def test_excluded_line_below_content_column_closes_item() -> None:
+    """除外行の indent が最内項目の content 列未満なら項目を閉じる
+    (トップレベルの fence はリストを閉じる)。項目内にインデントされた
+    fence は項目を閉じない。"""
+    lines = ["- a", "```", "code", "```", "  x", "- b"]
+    excluded = analyze_syntax(lines)
+    # トップレベル fence でリスト終了 → `  x` は項目外、`- b` は新規リスト
+    assert find_boundary_candidates(lines, excluded) == [(4, 5)]
+    lines = ["- a", "  ```", "  code", "  ```", "  x", "- b"]
+    excluded = analyze_syntax(lines)
+    # インデントされた fence は項目内 → 項目は閉じず全ペア抑制
+    assert find_boundary_candidates(lines, excluded) == []
 
 
 def test_candidates_keep_loose_nested_marker() -> None:
