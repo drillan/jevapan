@@ -313,6 +313,192 @@ async def test_echoice_groups_pairs_and_records_choices(
     assert req["pairs"] == [[5, 7], [7, 9]]
 
 
+def _choice2_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
+    """E-CHOICE2 のラベルプールを作る最小データ。各 doc に十分な
+    boundary/continue を用意する。"""
+    data = {
+        "window": {
+            "source": "plan.md",
+            "doc_lines": [11, 20],
+            "lines": [f"w{k}" for k in range(10)],
+        },
+        "labels": [
+            {"doc": "window", "i": 0, "j": 1, "label": "boundary"},
+            {"doc": "window", "i": 2, "j": 3, "label": "continue"},
+            *[
+                {"doc": "design", "i": k, "j": k + 1, "label": "boundary"}
+                for k in range(6)
+            ],
+            *[
+                {"doc": "design", "i": k + 10, "j": k + 11, "label": "continue"}
+                for k in range(15)
+            ],
+        ],
+    }
+    lex = {
+        "labels": [
+            {"doc": "plan_eb", "i": 1, "j": 2, "label": "boundary"},
+            {"doc": "plan_eb", "i": 3, "j": 4, "label": "boundary"},
+            *[
+                {"doc": "plan_eb", "i": k + 20, "j": k + 21, "label": "continue"}
+                for k in range(16)
+            ],
+            *[
+                {"doc": "readme", "i": k, "j": k + 1, "label": "boundary"}
+                for k in range(5)
+            ],
+            *[
+                {"doc": "readme", "i": k + 10, "j": k + 11, "label": "continue"}
+                for k in range(5)
+            ],
+            *[
+                {"doc": "bad", "i": k, "j": k + 1, "label": "boundary"}
+                for k in range(6)
+            ],
+            *[
+                {"doc": "bad", "i": k + 10, "j": k + 11, "label": "continue"}
+                for k in range(4)
+            ],
+            {"doc": "plan_eb", "i": 40, "j": 41, "label": "either"},
+        ]
+    }
+    return data, lex
+
+
+def test_choice2_label_pools_merge_window_and_ext() -> None:
+    """plan は plan_eb(doc index)と window ラベル(doc_lines オフセットで
+    写像)を併合する。either は選択肢プールに入らない。"""
+    mod = _load()
+    data, lex = _choice2_fixture()
+    pools = mod._choice2_label_pools(data, lex)
+    # window i=0 → doc index 10(doc_lines[0]-1=10)
+    assert (10, 11) in pools["plan"]["boundary"]
+    assert (1, 2) in pools["plan"]["boundary"]
+    assert (12, 13) in pools["plan"]["continue"]
+    # either は集めない
+    assert (40, 41) not in pools["plan"]["boundary"]
+    assert len(pools["design"]["boundary"]) == 6
+    assert len(pools["bad"]["continue"]) == 4
+
+
+def test_choice2_questions_group_composition() -> None:
+    """9問の群構成: boundary は全問相異なる1件、continue は未使用優先・
+    不足時に再利用を記録、correct_key は boundary 選択肢を指す。"""
+    mod = _load()
+    data, lex = _choice2_fixture()
+    pools = mod._choice2_label_pools(data, lex)
+    specs = mod._choice2_questions(pools)
+    assert len(specs) == 9
+    assert [s["doc"] for s in specs] == (
+        ["plan"] * 3 + ["design"] * 3 + ["readme"] * 2 + ["bad"]
+    )
+    bounds = [
+        (s["doc"], tuple(o["pair"]))
+        for s in specs
+        for o in s["options"]
+        if o["label"] == "boundary"
+    ]
+    assert len(set(bounds)) == 9  # 正解は全問相異なる(doc 別 junction)
+    for s in specs:
+        correct = [o for o in s["options"] if o["key"] == s["correct_key"]]
+        assert len(correct) == 1 and correct[0]["label"] == "boundary"
+        assert all(o["key"] in "abcdef" for o in s["options"])
+        assert sum(o["label"] == "boundary" for o in s["options"]) == 1
+    # readme は continue 5件しかないので2問目は再利用
+    readme2 = next(s for s in specs if s["doc"] == "readme" and s["index"] == 7)
+    assert readme2["reused_continues"]
+    # bad は continue 4件のみ → 5選択肢に縮小を記録
+    bad = specs[-1]
+    assert bad["truncated_options"] and len(bad["options"]) == 5
+
+
+async def test_echoice2_sends_one_request_per_question(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """1問=1リクエスト(束ねない)。criteria キーは中立、none なし。"""
+    mod = _load()
+    data, lex = _choice2_fixture()
+    docs = {"plan": "p.md", "design": "d.md", "readme": "r.md", "bad": "b.md"}
+    for name in docs.values():
+        (tmp_path / name).write_text(
+            "\n".join(f"text {k}" for k in range(60)), encoding="utf-8"
+        )
+    monkeypatch.setattr(
+        mod, "ECHOICE2_DOCS", {k: str(tmp_path / v) for k, v in docs.items()}
+    )
+    eng = Engine(client=_FakeTypedClient(0.9), sem=None)
+    runs = await mod.exp_echoice2(eng, data, lex)
+    run = runs[0]
+    assert run["experiment"] == "E-CHOICE2"
+    assert run["n_requests"] == 9  # 1問1リクエスト
+    for req in run["requests"]:
+        assert len(req["question_keys"]) == 1
+        q = next(iter(req["questions"].values()))
+        assert q["type"] == "choice"
+        assert "none" not in q["criteria"]
+        assert all(k in "abcdef" for k in q["criteria"])
+        for key in ("correct_key", "seed", "options", "state_range"):
+            assert key in req
+        # state は選択肢を含む範囲+余白、説明文は state 内 index
+        assert req["state"]["lines"]
+    assert "n_correct" in run
+
+
+async def test_echoice2_control_runs_only_when_significant(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """対照は4/9以上の正解が出た場合のみ実行される。"""
+    mod = _load()
+    data, lex = _choice2_fixture()
+    docs = {"plan": "p.md", "design": "d.md", "readme": "r.md", "bad": "b.md"}
+    for name in docs.values():
+        (tmp_path / name).write_text(
+            "\n".join(f"text {k}" for k in range(60)), encoding="utf-8"
+        )
+    monkeypatch.setattr(
+        mod, "ECHOICE2_DOCS", {k: str(tmp_path / v) for k, v in docs.items()}
+    )
+
+    class CorrectClient(_FakeTypedClient):
+        async def system_one(self, state: Any, questions: dict[str, Any]) -> Any:
+            self.sent.append(questions)
+            answers = {}
+            for k, q in questions.items():
+                labels = list(q.criteria)
+                answers[k] = type(
+                    "A",
+                    (),
+                    {
+                        "type": "choice",
+                        "choice": "a",  # 正解キーとは限らない
+                        "confidence": 0.9,
+                        "probabilities": {lab: 1.0 / len(labels) for lab in labels},
+                    },
+                )()
+            return type(
+                "R",
+                (),
+                {
+                    "answers": answers,
+                    "model": "m1",
+                    "usage": type("U", (), {"input_tokens": 1, "output_tokens": 2})(),
+                },
+            )()
+
+    # 常に先頭キーを選ぶクライアント: 正解数は shuffle 次第 → 対照条件を
+    # 直接制御するため n_correct のゲートをテストする
+    eng = Engine(client=CorrectClient(), sem=None)
+    runs = await mod.exp_echoice2(eng, data, lex)
+    assert len(runs) == (2 if runs[0]["n_correct"] >= 4 else 1)
+    if len(runs) == 2:
+        ctrl = runs[1]
+        assert ctrl["variant"] == "choice2_control"
+        assert ctrl["n_requests"] == 3
+        assert ctrl["params"]["note"] in next(
+            iter(ctrl["requests"][0]["questions"].values())
+        )["instructions"]
+
+
 def test_state_hash_stable() -> None:
     mod = _load()
     h1 = mod.state_hash({"lines": ["a", "b"]})

@@ -26,6 +26,7 @@ import asyncio
 import hashlib
 import json
 import os
+import random
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
@@ -37,8 +38,9 @@ from typesafe_sdk import Choice, Noul, NoulCriteria
 
 from jevapan.cli import _make_engine
 from jevapan.engine import Engine, NoulResult, _model_of, _usage_of
-from jevapan.mask import analyze_syntax
+from jevapan.mask import PLACEHOLDER_NOTE, analyze_syntax
 from jevapan.segmenter import (
+    WINDOW_MARGIN_LINES,
     _boundary_question,
     build_windows,
     find_boundary_candidates,
@@ -73,6 +75,29 @@ ECRIT_FALSE = (
 )
 # E-CHOICE: ペア群の既定サイズ(5-6件群=5-6群、10件群=3群で9 req)
 EB_GROUP_SIZE = 10
+
+# E-CHOICE v2(hub 再設計): 予備実験 exp_echoice とは別系統。
+# 1問=Choice1件(1 req ずつ、バッチ文脈の混入を防ぐため束ねない)。
+# 各問は「ちょうど1つが境界」の6選択肢(boundary1+continue5)。
+# none 選択肢は入れない。文書配分は plan3/design3/readme2/bad1。
+ECHOICE2_INSTRUCTIONS = (
+    "The document is given as numbered lines in state.lines. "
+    "Exactly one of the following junctions begins a new block — "
+    "a change of topic, role, or structure. Which one?"
+)
+ECHOICE2_SEED = 20260919
+ECHOICE2_DOCS = {
+    "plan": DEFAULT_DOCS[0],
+    "design": DEFAULT_DOCS[1],
+    "readme": "README.md",
+    "bad": "samples/bad.md",
+}
+ECHOICE2_ALLOC = {"plan": 3, "design": 3, "readme": 2, "bad": 1}
+ECHOICE2_N_OPTIONS = 6
+# 対照(+3req): 4/9 以上の正解が出た場合のみ、無関係な一文を足した
+# 条件で3問を再送し選択が変わらないか確認する(水準シフト耐性)
+ECHOICE2_CONTROL_IX = (0, 3, 6)  # plan/design/readme を1問ずつ
+ECHOICE2_SIGNIFICANT = 4  # 4/9 以上 = p=0.048 で有意(事前登録)
 
 
 def _q_confidence(i: int, j: int) -> str:
@@ -574,6 +599,186 @@ async def exp_echoice(
     return runs
 
 
+def _choice2_label_pools(
+    data: dict[str, Any], labels_ext: dict[str, Any]
+) -> dict[str, dict[str, list[tuple[int, int]]]]:
+    """doc -> label -> ソート済みユニークペア(doc 行 index)。
+
+    plan は labels_ext の plan_eb(doc index)と data の window ラベル
+    (window.doc_lines[0]-1 をオフセットに doc index へ写像)を併合する。
+    either は選択肢に使えないため boundary/continue のみ集める。"""
+    pools: dict[str, dict[str, set[tuple[int, int]]]] = {
+        d: {"boundary": set(), "continue": set()} for d in ECHOICE2_DOCS
+    }
+    for lb in labels_ext["labels"]:
+        doc = "plan" if lb["doc"] == "plan_eb" else lb["doc"]
+        if doc in pools and lb["label"] in pools[doc]:
+            pools[doc][lb["label"]].add((int(lb["i"]), int(lb["j"])))
+    woff = int(data["window"]["doc_lines"][0]) - 1
+    for lb in data["labels"]:
+        if lb["doc"] == "window":
+            doc, i, j = "plan", int(lb["i"]) + woff, int(lb["j"]) + woff
+        elif lb["doc"] == "design":
+            doc, i, j = "design", int(lb["i"]), int(lb["j"])
+        else:
+            continue
+        if lb["label"] in pools[doc]:
+            pools[doc][lb["label"]].add((i, j))
+    return {d: {k: sorted(v) for k, v in m.items()} for d, m in pools.items()}
+
+
+def _choice2_questions(
+    pools: dict[str, dict[str, list[tuple[int, int]]]],
+    alloc: dict[str, int] = ECHOICE2_ALLOC,
+    n_options: int = ECHOICE2_N_OPTIONS,
+    seed: int = ECHOICE2_SEED,
+) -> list[dict[str, Any]]:
+    """各問の群構成を決定的に構築する(正解位置のみ seed でシャッフル)。
+
+    boundary は全問で相異なるものを等間隔に選ぶ。continue は未使用を
+    優先し、尽きたら先頭から再利用する(reused_continues に記録)。
+    continue が n_options-1 件に満たない doc は群を縮小する
+    (truncated_options に記録)。"""
+    specs: list[dict[str, Any]] = []
+    qi = 0
+    for doc, n_q in alloc.items():
+        bounds = pools[doc]["boundary"]
+        conts = pools[doc]["continue"]
+        if not bounds:
+            msg = f"{doc}: boundary ラベルなし"
+            raise ValueError(msg)
+        used: set[tuple[int, int]] = set()
+        for k in range(n_q):
+            b = bounds[k * len(bounds) // n_q]
+            fresh = [c for c in conts if c not in used]
+            take = fresh[: n_options - 1]
+            take += [c for c in conts if c not in take][: n_options - 1 - len(take)]
+            opts = [("boundary", b)] + [("continue", c) for c in take]
+            order = list(range(len(opts)))
+            random.Random(seed + qi).shuffle(order)
+            keys = "abcdef"[: len(opts)]
+            options = [
+                {"key": keys[t], "pair": list(opts[i][1]), "label": opts[i][0]}
+                for t, i in enumerate(order)
+            ]
+            specs.append(
+                {
+                    "index": qi,
+                    "doc": doc,
+                    "options": options,
+                    "correct_key": next(
+                        o["key"] for o in options if o["label"] == "boundary"
+                    ),
+                    "seed": seed + qi,
+                    "reused_continues": sorted(
+                        c for c in take if c in used
+                    ),
+                    "truncated_options": len(opts) < n_options,
+                }
+            )
+            used.update(take)
+            qi += 1
+    return specs
+
+
+async def exp_echoice2(
+    engine: Engine,
+    data: dict[str, Any],
+    labels_ext: dict[str, Any],
+    alloc: dict[str, int] = ECHOICE2_ALLOC,
+    n_options: int = ECHOICE2_N_OPTIONS,
+    seed: int = ECHOICE2_SEED,
+) -> list[dict[str, Any]]:
+    """E-CHOICE v2(hub 再設計): 9問 × Choice1件(1問1リクエスト)。
+
+    各問は boundary1+continue5 の「ちょうど1つが境界」群(none なし)。
+    state は現行 segmenter と同形 {"lines": [...]}(全選択肢を含む
+    最小範囲+WINDOW_MARGIN_LINES の余白)。criteria キーは中立の
+    a-f で、説明文は「lines[i] と lines[j] の間」(state 内 index)。
+    4/9 以上の正解が出た場合のみ、instructions に PLACEHOLDER_NOTE
+    (無関係な一文)を足した対照3reqを追加実行する。"""
+    pools = _choice2_label_pools(data, labels_ext)
+    specs = _choice2_questions(pools, alloc, n_options, seed)
+    doc_texts = {
+        d: Path(p).read_text(encoding="utf-8") for d, p in ECHOICE2_DOCS.items()
+    }
+
+    def state_for(spec: dict[str, Any]) -> tuple[Any, int, int]:
+        lines = doc_texts[spec["doc"]].splitlines()
+        ends = {k for o in spec["options"] for k in o["pair"]}
+        s0 = max(0, min(ends) - WINDOW_MARGIN_LINES)
+        s1 = min(len(lines), max(ends) + WINDOW_MARGIN_LINES + 1)
+        return {"lines": lines[s0:s1]}, s0, s1
+
+    async def ask(
+        run: dict[str, Any], spec: dict[str, Any], instructions: str
+    ) -> None:
+        state, s0, s1 = state_for(spec)
+        criteria = {
+            o["key"]: f"lines[{o['pair'][0] - s0}] と lines[{o['pair'][1] - s0}] の間"
+            for o in spec["options"]
+        }
+        await _ask_typed(
+            engine,
+            run["requests"],
+            state,
+            {f"q{spec['index']}": Choice(instructions=instructions, criteria=criteria)},
+            meta={**spec, "state_range": [s0, s1]},
+        )
+
+    run: dict[str, Any] = {
+        "experiment": "E-CHOICE2",
+        "rep": 0,
+        "input_sha256": {d: _input_hash(t) for d, t in doc_texts.items()},
+        "variant": "choice2",
+        "polarity": 1,
+        "params": {
+            "alloc": dict(alloc),
+            "n_options": n_options,
+            "n_questions": len(specs),
+            "seed": seed,
+        },
+        "requests": [],
+    }
+    for spec in specs:
+        await ask(run, spec, ECHOICE2_INSTRUCTIONS)
+    runs = [_finish_run(run)]
+
+    # 事前登録: 4/9 以上の正解が出た場合のみ対照を実行
+    n_correct = sum(
+        1
+        for req, spec in zip(run["requests"], specs, strict=True)
+        if req["choices"][f"q{spec['index']}"]["choice"] == spec["correct_key"]
+    )
+    run["n_correct"] = n_correct
+    if n_correct >= ECHOICE2_SIGNIFICANT:
+        ctrl: dict[str, Any] = {
+            "experiment": "E-CHOICE2",
+            "rep": 0,
+            "input_sha256": run["input_sha256"],
+            "variant": "choice2_control",
+            "polarity": 1,
+            "params": {
+                "note": PLACEHOLDER_NOTE,
+                "question_indices": list(ECHOICE2_CONTROL_IX),
+            },
+            "requests": [],
+        }
+        for ix in ECHOICE2_CONTROL_IX:
+            spec = specs[ix]
+            await ask(ctrl, spec, ECHOICE2_INSTRUCTIONS + " " + PLACEHOLDER_NOTE)
+        ctrl["unchanged"] = all(
+            c["choices"][f"q{s['index']}"]["choice"] == s["correct_key"]
+            for c, s in zip(
+                ctrl["requests"],
+                (specs[ix] for ix in ECHOICE2_CONTROL_IX),
+                strict=True,
+            )
+        )
+        runs.append(_finish_run(ctrl))
+    return runs
+
+
 async def run_all(args: argparse.Namespace) -> dict[str, Any]:
     engine = _make_engine(args.concurrency)
     out: dict[str, Any] = {
@@ -612,8 +817,9 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
     if "ee" in stages:
         out["runs"].extend(await exp_ee(engine, args.docs, r=args.rep_ee))
     # E-C/E-A は同一の固定窓 W を使う(交絡を切るため全実験で同一素材)
+    # E-CHOICE2 は W ラベル(plan 文書への写像用)も使う
     data = None
-    if {"ec", "ea"} & stages:
+    if {"ec", "ea", "choice2"} & stages:
         data_path = Path(args.data)
         if data_path.exists():
             raw = data_path.read_text(encoding="utf-8")
@@ -636,7 +842,7 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
             )
         )
     labels_ext = None
-    if "crit" in stages:
+    if {"crit", "choice2"} & stages:
         lex_path = Path(args.labels_ext)
         if lex_path.exists():
             raw_lex = lex_path.read_text(encoding="utf-8")
@@ -663,6 +869,8 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
                 group_size=args.eb_group_size,
             )
         )
+    if "choice2" in stages and data is not None and labels_ext is not None:
+        out["runs"].extend(await exp_echoice2(engine, data, labels_ext))
     return out
 
 
@@ -737,6 +945,9 @@ def plan(args: argparse.Namespace) -> dict[str, int]:
                 if w_eb is not None
                 else -1
             )
+    if "choice2" in args.stages:
+        # 9問(1問1req)。4/9 以上なら対照3reqが追加される(最大12)
+        counts["E-CHOICE2"] = sum(ECHOICE2_ALLOC.values()) + len(ECHOICE2_CONTROL_IX)
     counts["total"] = sum(v for v in counts.values() if v > 0)
     return counts
 
@@ -752,7 +963,7 @@ def main() -> int:
     ap.add_argument(
         "--stages",
         nargs="+",
-        choices=["cache", "ee", "ec", "ea", "eb", "crit", "choice"],
+        choices=["cache", "ee", "ec", "ea", "eb", "crit", "choice", "choice2"],
         default=["cache", "ee", "ec", "ea"],
     )
     ap.add_argument("--rep-ee", type=int, default=R_EE)

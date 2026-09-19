@@ -1,0 +1,2293 @@
+{
+  "inputs": {
+    "docs/superpowers/plans/2026-09-18-jevapan.md": {
+      "sha256": "31ab6884e31a6c7179d6c157ed77f5121032ebfbb8b31ea7ab4979245c9de100",
+      "n_candidates": 133
+    },
+    "docs/superpowers/specs/2026-09-18-jevapan-design.md": {
+      "sha256": "b84efaad69c2cbe80656947098b7e6cc1e38089a619f27311a3d96a0909f4f61",
+      "n_candidates": 32
+    },
+    "scripts/boundary_eval_data.json": {
+      "sha256": "29e784e5914afee38cade8f415abf19c730646d951cf8dd5855f14405661a704"
+    },
+    "scripts/boundary_eval_labels_ext.json": {
+      "sha256": "f3c01ba444c7740e5b8319cf8d9414562e8e41b8e2e98bc54cfa2090ff9aa98e"
+    }
+  },
+  "cache_check": null,
+  "runs": [
+    {
+      "experiment": "E-CHOICE2",
+      "rep": 0,
+      "input_sha256": {
+        "plan": "31ab6884e31a6c7179d6c157ed77f5121032ebfbb8b31ea7ab4979245c9de100",
+        "design": "b84efaad69c2cbe80656947098b7e6cc1e38089a619f27311a3d96a0909f4f61",
+        "readme": "e7d962650e3b4de044a12ede3e386d860eae16a204a7bf9a6d8befa1701f9e0a",
+        "bad": "669695f0099c35efbac7140444e477860e35eb1d3ae887e6ce9324fde45892ca"
+      },
+      "variant": "choice2",
+      "polarity": 1,
+      "params": {
+        "alloc": {
+          "plan": 3,
+          "design": 3,
+          "readme": 2,
+          "bad": 1
+        },
+        "n_options": 6,
+        "n_questions": 9,
+        "seed": 20260919
+      },
+      "requests": [
+        {
+          "state": {
+            "lines": [
+              "            for i in range(len(cands))",
+              "        },",
+              "    )",
+              "    return [",
+              "        Violation(",
+              "            start=lr[0],",
+              "            end=lr[1],",
+              "            scope=\"document\",",
+              "            category=category.name,",
+              "            severity=category.severity.value,",
+              "            probability=probs[f\"s{i}\"],",
+              "            text=t,",
+              "        )",
+              "        for i, (lr, t) in enumerate(cands)",
+              "        if probs[f\"s{i}\"] >= LOCATE_THRESHOLD",
+              "    ]",
+              "```",
+              "",
+              "- [ ] **Step 4: テスト通過確認 → コミット**",
+              "",
+              "Run: `uv run pytest tests/test_locator.py -v`",
+              "Expected: PASS 2件",
+              "",
+              "```bash",
+              "git add src/jevapan/locator.py src/jevapan/models.py tests/test_locator.py",
+              "git commit -m \"add sentence-level violation locator\"",
+              "```",
+              "",
+              "---",
+              "",
+              "### Task 9: パイプライン統合と出力(report)",
+              "",
+              "**Files:**",
+              "- Create: `src/jevapan/pipeline.py`",
+              "- Create: `src/jevapan/report.py`",
+              "- Create: `tests/test_report.py`",
+              "- Create: `tests/test_pipeline.py`",
+              "",
+              "**Interfaces:**",
+              "- Consumes: segment/score_blocks/score_document/locate_in_block/locate_in_document",
+              "- Produces:",
+              "  ```python",
+              "  # models.py に追加",
+              "  @dataclass",
+              "  class LintResult:",
+              "      file: str",
+              "      blocks: list[Block]",
+              "      block_scores: list[ScoredBlock]",
+              "      doc_scores: dict[str, CategoryScore]",
+              "      violations: list[Violation]",
+              "      skipped: list[dict]",
+              "      summary: dict",
+              "",
+              "  # pipeline.py",
+              "  STATE_DOC_LIMIT = 32000  # document scope の state 文字数上限(概算)",
+              "  async def lint_text(engine: Engine, text: str, ruleset: Ruleset, file_label: str) -> LintResult",
+              "",
+              "  # report.py",
+              "  def render_json(result: LintResult) -> dict",
+              "  def render_human(result: LintResult) -> str",
+              "  def exit_code(result: LintResult) -> int  # error severity 違反→1",
+              "  ```",
+              "",
+              "- [ ] **Step 1: 失敗するテストを書く**",
+              "",
+              "```python",
+              "# tests/test_report.py",
+              "from jevapan.models import Block, Violation",
+              "from jevapan.pipeline import LintResult",
+              "from jevapan.report import exit_code, render_json",
+              "",
+              "",
+              "def _result(violations):",
+              "    return LintResult(",
+              "        file=\"f.md\",",
+              "        blocks=[Block(1, 3, \"t\")],",
+              "        block_scores=[],",
+              "        doc_scores={},",
+              "        violations=violations,",
+              "        skipped=[],",
+              "        summary={},",
+              "    )",
+              "",
+              "",
+              "def test_exit_code_error_violation():",
+              "    v = Violation(1, 1, \"block\", \"substance\", \"error\", 0.9, \"x\")",
+              "    assert exit_code(_result([v])) == 1",
+              "",
+              "",
+              "def test_exit_code_warning_only():",
+              "    v = Violation(1, 1, \"block\", \"substance\", \"warning\", 0.9, \"x\")",
+              "    assert exit_code(_result([v])) == 0",
+              "",
+              "",
+              "def test_render_json_schema():",
+              "    v = Violation(3, 3, \"document\", \"consistency\", \"warning\", 0.8, \"t\")",
+              "    out = render_json(_result([v]))",
+              "    assert out[\"file\"] == \"f.md\"",
+              "    assert out[\"violations\"][0][\"lines\"] == [3, 3]",
+              "    assert out[\"violations\"][0][\"scope\"] == \"document\"",
+              "```",
+              "",
+              "```python",
+              "# tests/test_pipeline.py",
+              "from unittest.mock import AsyncMock",
+              "from jevapan.engine import Engine, ScoreResult",
+              "from jevapan.pipeline import lint_text",
+              "from jevapan.ruleset import parse_ruleset",
+              "",
+              "",
+              "async def test_pipeline_skips_document_scope_over_limit():",
+              "    eng = Engine(client=AsyncMock(), sem=None)",
+              "    eng.noul_batch = AsyncMock(return_value={\"b0\": 0.0})",
+              "    eng.score_batch = AsyncMock(return_value={\"c\": ScoreResult(1.9, 0.9)})",
+              "    rs = parse_ruleset(",
+              "        {",
+              "            \"categories\": [",
+              "                {",
+              "                    \"name\": \"c\",",
+              "                    \"scope\": \"document\",",
+              "                    \"description\": \"d\",",
+              "                    \"levels\": [\"a\", \"b\"],",
+              "                }",
+              "            ]",
+              "        },",
+              "        \"t\",",
+              "    )",
+              "    res = await lint_text(eng, \"x\" * 40000, rs, \"big.md\")",
+              "    assert res.skipped and res.skipped[0][\"reason\"] == \"state_too_large\"",
+              "```",
+              "",
+              "- [ ] **Step 2: テスト失敗確認**",
+              "",
+              "Run: `uv run pytest tests/test_report.py tests/test_pipeline.py -v`",
+              "Expected: FAIL (ModuleNotFoundError)",
+              "",
+              "- [ ] **Step 3: 実装**",
+              "",
+              "```python",
+              "# src/jevapan/models.py に追記",
+              "@dataclass",
+              "class LintResult:",
+              "    file: str",
+              "    blocks: list[\"Block\"]",
+              "    block_scores: list",
+              "    doc_scores: dict",
+              "    violations: list[Violation]",
+              "    skipped: list[dict]",
+              "    summary: dict",
+              "```",
+              "",
+              "```python",
+              "# src/jevapan/pipeline.py",
+              "import asyncio"
+            ]
+          },
+          "state_sha256": "24a6a4fea4f61d18953a6b354955d6c7547a2aecf7c28fbfca9938e60a3f2ed4",
+          "question_keys": [
+            "q0"
+          ],
+          "questions": {
+            "q0": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[32] と lines[33] の間",
+                "b": "lines[20] と lines[21] の間",
+                "c": "lines[38] と lines[39] の間",
+                "d": "lines[30] と lines[32] の間",
+                "e": "lines[36] と lines[38] の間",
+                "f": "lines[131] と lines[133] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q0": {
+              "choice": "a",
+              "confidence": 0.13,
+              "probabilities": {
+                "a": 0.28,
+                "e": 0.09,
+                "d": 0.2,
+                "f": 0.04,
+                "b": 0.25,
+                "c": 0.14
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 2071,
+            "output_tokens": 60
+          },
+          "index": 0,
+          "doc": "plan",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                1262,
+                1263
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                1250,
+                1251
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                1268,
+                1269
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                1260,
+                1262
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                1266,
+                1268
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "f",
+              "pair": [
+                1361,
+                1363
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "e",
+          "seed": 20260919,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            1230,
+            1384
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "    eng.score_batch = AsyncMock(return_value={\"c\": ScoreResult(1.9, 0.9)})",
+              "    rs = parse_ruleset(",
+              "        {",
+              "            \"categories\": [",
+              "                {",
+              "                    \"name\": \"c\",",
+              "                    \"scope\": \"document\",",
+              "                    \"description\": \"d\",",
+              "                    \"levels\": [\"a\", \"b\"],",
+              "                }",
+              "            ]",
+              "        },",
+              "        \"t\",",
+              "    )",
+              "    res = await lint_text(eng, \"x\" * 40000, rs, \"big.md\")",
+              "    assert res.skipped and res.skipped[0][\"reason\"] == \"state_too_large\"",
+              "```",
+              "",
+              "- [ ] **Step 2: テスト失敗確認**",
+              "",
+              "Run: `uv run pytest tests/test_report.py tests/test_pipeline.py -v`",
+              "Expected: FAIL (ModuleNotFoundError)",
+              "",
+              "- [ ] **Step 3: 実装**",
+              "",
+              "```python",
+              "# src/jevapan/models.py に追記",
+              "@dataclass",
+              "class LintResult:",
+              "    file: str",
+              "    blocks: list[\"Block\"]",
+              "    block_scores: list",
+              "    doc_scores: dict",
+              "    violations: list[Violation]",
+              "    skipped: list[dict]",
+              "    summary: dict",
+              "```",
+              "",
+              "```python",
+              "# src/jevapan/pipeline.py",
+              "import asyncio",
+              "",
+              "from jevapan.engine import Engine",
+              "from jevapan.locator import locate_in_block, locate_in_document",
+              "from jevapan.models import LintResult, Violation",
+              "from jevapan.ruleset import Ruleset, Scope",
+              "from jevapan.scorer import score_blocks, score_document",
+              "from jevapan.segmenter import segment",
+              "",
+              "STATE_DOC_LIMIT = 32000  # document scope に渡す文字数の上限(概算)",
+              "",
+              "",
+              "async def lint_text(",
+              "    engine: Engine, text: str, ruleset: Ruleset, file_label: str",
+              ") -> LintResult:",
+              "    lines = text.splitlines() or [\"\"]",
+              "    blocks = await segment(engine, text)",
+              "    cats = [c for c in ruleset.categories if c.enabled]",
+              "",
+              "    block_scores = await score_blocks(engine, blocks, cats)",
+              "    skipped: list[dict] = []",
+              "    doc_cats = [c for c in cats if c.scope in (Scope.document, Scope.both)]",
+              "    if doc_cats and len(text) > STATE_DOC_LIMIT:",
+              "        skipped += [{\"category\": c.name, \"reason\": \"state_too_large\"} for c in doc_cats]",
+              "        doc_scores = {}",
+              "    else:",
+              "        doc_scores = await score_document(engine, text, cats)",
+              "",
+              "    # flag → locate",
+              "    tasks = []",
+              "    for sb in block_scores:",
+              "        for name, cs in sb.scores.items():",
+              "            cat = next(c for c in cats if c.name == name)",
+              "            if cs.score < cat.threshold and cat.locate:",
+              "                tasks.append(locate_in_block(engine, sb.block, cat, text[:2000]))",
+              "    for name, cs in doc_scores.items():",
+              "        cat = next(c for c in cats if c.name == name)",
+              "        if cs.score < cat.threshold and cat.locate:",
+              "            tasks.append(locate_in_document(engine, text, cat, lines))",
+              "    nested = await asyncio.gather(*tasks)",
+              "    violations: list[Violation] = [v for lst in nested for v in lst]",
+              "",
+              "    return LintResult(",
+              "        file=file_label,",
+              "        blocks=blocks,",
+              "        block_scores=block_scores,",
+              "        doc_scores=doc_scores,",
+              "        violations=violations,",
+              "        skipped=skipped,",
+              "        summary={",
+              "            \"blocks\": len(blocks),",
+              "            \"violations\": len(violations),",
+              "            \"errors\": sum(1 for v in violations if v.severity == \"error\"),",
+              "        },",
+              "    )",
+              "```",
+              "",
+              "```python",
+              "# src/jevapan/report.py",
+              "import json",
+              "",
+              "from jevapan.models import LintResult",
+              "",
+              "",
+              "def render_json(result: LintResult) -> dict:",
+              "    return {",
+              "        \"file\": result.file,",
+              "        \"blocks\": [",
+              "            {",
+              "                \"lines\": list(b.lines),",
+              "                \"scores\": {",
+              "                    n: {\"score\": s.score, \"confidence\": s.confidence}",
+              "                    for n, s in sb.scores.items()",
+              "                },",
+              "            }",
+              "            for b, sb in zip(result.blocks, result.block_scores)",
+              "        ],",
+              "        \"doc_scores\": {",
+              "            n: {\"score\": s.score, \"confidence\": s.confidence}",
+              "            for n, s in result.doc_scores.items()",
+              "        },",
+              "        \"violations\": [",
+              "            {",
+              "                \"lines\": list(v.lines),",
+              "                \"scope\": v.scope,",
+              "                \"category\": v.category,",
+              "                \"severity\": v.severity,",
+              "                \"probability\": round(v.probability, 3),",
+              "                \"text\": v.text,",
+              "            }",
+              "            for v in result.violations",
+              "        ],",
+              "        \"skipped\": result.skipped,",
+              "        \"summary\": result.summary,",
+              "    }",
+              "",
+              "",
+              "def render_human(result: LintResult) -> str:",
+              "    out = [",
+              "        f\"{result.file}: {result.summary['blocks']} blocks, \"",
+              "        f\"{result.summary['violations']} violations\"",
+              "    ]",
+              "    for v in result.violations:",
+              "        out.append(",
+              "            f\"  L{v.start}-{v.end} [{v.severity}] {v.category} \"",
+              "            f\"P={v.probability:.2f} {v.text[:70]}\"",
+              "        )",
+              "    for s in result.skipped:",
+              "        out.append(f\"  skipped: {s['category']} ({s['reason']})\")",
+              "    return \"\\n\".join(out)",
+              "",
+              "",
+              "def exit_code(result: LintResult) -> int:",
+              "    return 1 if any(v.severity == \"error\" for v in result.violations) else 0",
+              "```",
+              "",
+              "- [ ] **Step 4: テスト通過確認 → コミット**",
+              "",
+              "Run: `uv run pytest tests/test_report.py tests/test_pipeline.py -v`",
+              "Expected: PASS 4件",
+              "",
+              "```bash",
+              "git add src/jevapan/pipeline.py src/jevapan/report.py src/jevapan/models.py tests",
+              "git commit -m \"add pipeline orchestration and reporters\"",
+              "```",
+              "",
+              "---",
+              "",
+              "### Task 10: CLI",
+              "",
+              "**Files:**",
+              "- Modify: `src/jevapan/cli.py`",
+              "- Create: `tests/test_cli.py`",
+              "",
+              "**Interfaces:**",
+              "- Consumes: 全タスクの成果物",
+              "- Produces: `main(argv) -> int` — check サブコマンド、stdin、再帰、format auto、終了コード",
+              "",
+              "- [ ] **Step 1: 失敗するテストを書く**",
+              "",
+              "```python",
+              "# tests/test_cli.py",
+              "import io",
+              "import json",
+              "from unittest.mock import AsyncMock, patch",
+              "",
+              "import pytest",
+              "from jevapan.cli import main",
+              "",
+              "",
+              "def test_check_requires_file():",
+              "    with pytest.raises(SystemExit):  # argparse が usage エラーで終了",
+              "        main([\"check\"])",
+              "",
+              "",
+              "def test_check_stdin_json(monkeypatch, capsys):",
+              "    monkeypatch.setenv(\"TYPESAFE_API_KEY\", \"test-key\")",
+              "    monkeypatch.setattr(\"sys.stdin\", io.StringIO(\"# doc\\n\\ntext\\n\"))",
+              "    fake = AsyncMock()"
+            ]
+          },
+          "state_sha256": "e825980f98e206d630248e6989f5b768aa488962cf781e79a55125d43e5c4202",
+          "question_keys": [
+            "q1"
+          ],
+          "questions": {
+            "q1": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[176] と lines[178] の間",
+                "b": "lines[170] と lines[171] の間",
+                "c": "lines[158] と lines[159] の間",
+                "d": "lines[20] と lines[21] の間",
+                "e": "lines[156] と lines[158] の間",
+                "f": "lines[168] と lines[170] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q1": {
+              "choice": "d",
+              "confidence": 0.12,
+              "probabilities": {
+                "f": 0.18,
+                "a": 0.17,
+                "d": 0.26,
+                "e": 0.15,
+                "c": 0.12,
+                "b": 0.12
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 2596,
+            "output_tokens": 60
+          },
+          "index": 1,
+          "doc": "plan",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                1519,
+                1521
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "b",
+              "pair": [
+                1513,
+                1514
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                1501,
+                1502
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                1363,
+                1364
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                1499,
+                1501
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                1511,
+                1513
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "a",
+          "seed": 20260920,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            1343,
+            1542
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "```",
+              "",
+              "- [ ] **Step 4: テスト通過確認 → コミット**",
+              "",
+              "Run: `uv run pytest tests/test_report.py tests/test_pipeline.py -v`",
+              "Expected: PASS 4件",
+              "",
+              "```bash",
+              "git add src/jevapan/pipeline.py src/jevapan/report.py src/jevapan/models.py tests",
+              "git commit -m \"add pipeline orchestration and reporters\"",
+              "```",
+              "",
+              "---",
+              "",
+              "### Task 10: CLI",
+              "",
+              "**Files:**",
+              "- Modify: `src/jevapan/cli.py`",
+              "- Create: `tests/test_cli.py`",
+              "",
+              "**Interfaces:**",
+              "- Consumes: 全タスクの成果物",
+              "- Produces: `main(argv) -> int` — check サブコマンド、stdin、再帰、format auto、終了コード",
+              "",
+              "- [ ] **Step 1: 失敗するテストを書く**",
+              "",
+              "```python",
+              "# tests/test_cli.py",
+              "import io",
+              "import json",
+              "from unittest.mock import AsyncMock, patch",
+              "",
+              "import pytest",
+              "from jevapan.cli import main",
+              "",
+              "",
+              "def test_check_requires_file():",
+              "    with pytest.raises(SystemExit):  # argparse が usage エラーで終了",
+              "        main([\"check\"])",
+              "",
+              "",
+              "def test_check_stdin_json(monkeypatch, capsys):",
+              "    monkeypatch.setenv(\"TYPESAFE_API_KEY\", \"test-key\")",
+              "    monkeypatch.setattr(\"sys.stdin\", io.StringIO(\"# doc\\n\\ntext\\n\"))",
+              "    fake = AsyncMock()",
+              "    fake.summary = {\"blocks\": 1, \"violations\": 0, \"errors\": 0}",
+              "    fake.violations = []",
+              "    fake.skipped = []",
+              "    fake.blocks = []",
+              "    fake.block_scores = []",
+              "    fake.doc_scores = {}",
+              "    fake.file = \"<stdin>\"",
+              "    with (",
+              "        patch(\"jevapan.cli._make_engine\") as me,",
+              "        patch(\"jevapan.cli.lint_text\", AsyncMock(return_value=fake)),",
+              "    ):",
+              "        me.return_value = AsyncMock()",
+              "        assert main([\"check\", \"-\", \"--format\", \"json\"]) == 0",
+              "        out = json.loads(capsys.readouterr().out)",
+              "        assert out[\"files\"][0][\"file\"] == \"<stdin>\"",
+              "",
+              "",
+              "def test_check_missing_api_key(monkeypatch, capsys):",
+              "    monkeypatch.delenv(\"TYPESAFE_API_KEY\", raising=False)",
+              "    assert main([\"check\", \"-\"]) == 2",
+              "```",
+              "",
+              "- [ ] **Step 2: テスト失敗確認**",
+              "",
+              "Run: `uv run pytest tests/test_cli.py -v`",
+              "Expected: FAIL (今の main は常に2を返す)",
+              "",
+              "- [ ] **Step 3: 実装**",
+              "",
+              "```python",
+              "# src/jevapan/cli.py",
+              "import argparse",
+              "import asyncio",
+              "import json",
+              "import os",
+              "import sys",
+              "from pathlib import Path",
+              "",
+              "from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy",
+              "",
+              "from jevapan.engine import Engine",
+              "from jevapan.pipeline import lint_text",
+              "from jevapan.report import exit_code, render_human, render_json",
+              "from jevapan.ruleset import load_effective_ruleset",
+              "",
+              "",
+              "def _make_engine(concurrency: int) -> Engine:",
+              "    import asyncio as _a",
+              "",
+              "    return Engine(",
+              "        client=AsyncTypeSafeClient(retry=RetryPolicy(max_attempts=3)),",
+              "        sem=_a.Semaphore(concurrency),",
+              "    )",
+              "",
+              "",
+              "def _iter_inputs(paths: list[str], recursive: bool) -> list[tuple[str, str]]:",
+              "    \"\"\"(label, text) のリストを返す。'-' は stdin。\"\"\"",
+              "    out: list[tuple[str, str]] = []",
+              "    for p in paths:",
+              "        if p == \"-\":",
+              "            out.append((\"<stdin>\", sys.stdin.read()))",
+              "            continue",
+              "        path = Path(p)",
+              "        if path.is_dir():",
+              "            if not recursive:",
+              "                raise ValueError(f\"{p} is a directory; pass -r to recurse\")",
+              "            for f in sorted(path.rglob(\"*.md\")) + sorted(path.rglob(\"*.txt\")):",
+              "                out.append((str(f), f.read_text(encoding=\"utf-8\")))",
+              "        else:",
+              "            out.append((str(path), path.read_text(encoding=\"utf-8\")))",
+              "    return out",
+              "",
+              "",
+              "async def _run(args) -> int:",
+              "    if not os.environ.get(\"TYPESAFE_API_KEY\"):",
+              "        print(",
+              "            \"TYPESAFE_API_KEY が未設定です。環境変数に設定してください\", file=sys.stderr",
+              "        )",
+              "        return 2",
+              "    try:",
+              "        ruleset = load_effective_ruleset(args.ruleset, Path.cwd())",
+              "        inputs = _iter_inputs(args.paths, args.recursive)",
+              "    except (ValueError, OSError) as e:",
+              "        print(f\"jevapan: {e}\", file=sys.stderr)",
+              "        return 2",
+              "    engine = _make_engine(args.concurrency)",
+              "    results = await asyncio.gather(",
+              "        *[lint_text(engine, text, ruleset, label) for label, text in inputs]",
+              "    )",
+              "    if args.format == \"json\" or (args.format == \"auto\" and not sys.stdout.isatty()):",
+              "        print(",
+              "            json.dumps({\"files\": [render_json(r) for r in results]}, ensure_ascii=False)",
+              "        )",
+              "    else:",
+              "        for r in results:",
+              "            print(render_human(r))",
+              "    if args.fail_under is not None:",
+              "        worst = min(",
+              "            (",
+              "                s.score",
+              "                for r in results",
+              "                for sb in r.block_scores",
+              "                for s in sb.scores.values()",
+              "            ),",
+              "            default=3.0,",
+              "        )",
+              "        return 1 if worst < args.fail_under else 0",
+              "    return max((exit_code(r) for r in results), default=0)",
+              "",
+              "",
+              "def main(argv: list[str] | None = None) -> int:",
+              "    parser = argparse.ArgumentParser(prog=\"jvp\")",
+              "    sub = parser.add_subparsers(dest=\"cmd\")",
+              "    chk = sub.add_parser(\"check\", help=\"lint files\")",
+              "    chk.add_argument(\"paths\", nargs=\"+\", help=\"files, dirs, or '-' for stdin\")",
+              "    chk.add_argument(\"-r\", \"--recursive\", action=\"store_true\")",
+              "    chk.add_argument(\"--ruleset\", default=None)",
+              "    chk.add_argument(\"--config\", default=None, help=\"jevapan.yaml path\")",
+              "    chk.add_argument(\"--format\", choices=[\"auto\", \"human\", \"json\"], default=\"auto\")",
+              "    chk.add_argument(\"--concurrency\", type=int, default=20)",
+              "    chk.add_argument(\"--fail-under\", type=float, default=None)",
+              "    args = parser.parse_args(argv)",
+              "    if args.cmd != \"check\":",
+              "        parser.print_help(sys.stderr)",
+              "        return 2",
+              "    try:",
+              "        return asyncio.run(_run(args))",
+              "    except Exception as e:  # API エラー等は失敗として伝播",
+              "        print(f\"jevapan: {e}\", file=sys.stderr)",
+              "        return 2",
+              "",
+              "",
+              "if __name__ == \"__main__\":",
+              "    sys.exit(main())",
+              "```",
+              "",
+              "`--config` の取り込みは `load_effective_ruleset` に渡す形にする — Task 3 の `load_effective_ruleset(ruleset, cwd)` は自動探索なので、`--config` 指定時はそのファイルをユーザー yaml として読む分岐を `_run` 内か `load_effective_ruleset` に追加する。実装者は `load_effective_ruleset` に `config_path: Path | None = None` 引数を足し、指定時は探索をスキップしてそのファイルを使うこと。",
+              "",
+              "- [ ] **Step 4: テスト通過確認 → lint/mypy → コミット**",
+              "",
+              "Run: `uv run pytest tests/test_cli.py -v && uv run ruff check . && uv run mypy .`",
+              "Expected: PASS、mypy エラーがあれば型注釈を直す",
+              "",
+              "```bash",
+              "git add src/jevapan/cli.py tests/test_cli.py src/jevapan/ruleset.py",
+              "git commit -m \"add check subcommand with stdin and json output\"",
+              "```",
+              "",
+              "---",
+              "",
+              "### Task 11: 統合サンプルと README",
+              "",
+              "**Files:**",
+              "- Create: `samples/bad.md`, `samples/good.md` (jev-practice のものを日本語向けに移植)",
+              "- Create: `tests/test_integration.py`",
+              "- Modify: `README.md`",
+              "",
+              "**Interfaces:**",
+              "- 統合テストは `TYPESAFE_API_KEY` があるときだけ動く",
+              "",
+              "- [ ] **Step 1: 統合テスト(APIキー任意)**",
+              "",
+              "```python",
+              "# tests/test_integration.py",
+              "import os",
+              "import pytest",
+              "from jevapan.cli import main",
+              "",
+              "pytestmark = pytest.mark.skipif(",
+              "    not os.environ.get(\"TYPESAFE_API_KEY\"), reason=\"requires TYPESAFE_API_KEY\"",
+              ")",
+              "",
+              "",
+              "def test_bad_doc_flags_violations(capsys):",
+              "    assert main([\"check\", \"samples/bad.md\", \"--format\", \"json\"]) in (0, 1)",
+              "    import json",
+              "",
+              "    out = json.loads(capsys.readouterr().out)",
+              "    assert out[\"files\"][0][\"summary\"][\"violations\"] > 0",
+              "",
+              ""
+            ]
+          },
+          "state_sha256": "4431d10c4793cce9e533c7dd88329f7716317330c43109b5aa2466d107b38815",
+          "question_keys": [
+            "q2"
+          ],
+          "questions": {
+            "q2": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[69] と lines[70] の間",
+                "b": "lines[67] と lines[69] の間",
+                "c": "lines[183] と lines[185] の間",
+                "d": "lines[185] と lines[186] の間",
+                "e": "lines[203] と lines[205] の間",
+                "f": "lines[20] と lines[21] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q2": {
+              "choice": "f",
+              "confidence": 0.43,
+              "probabilities": {
+                "c": 0.06,
+                "e": 0.08,
+                "a": 0.1,
+                "d": 0.09,
+                "b": 0.14,
+                "f": 0.53
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 3167,
+            "output_tokens": 60
+          },
+          "index": 2,
+          "doc": "plan",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                1566,
+                1567
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                1564,
+                1566
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                1680,
+                1682
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                1682,
+                1683
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                1700,
+                1702
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "f",
+              "pair": [
+                1517,
+                1518
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "e",
+          "seed": 20260921,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            1497,
+            1723
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "# jevapan 設計書",
+              "",
+              "日本語文書をセマンティックに lint する CLI ツール。TypeSafe の System One モデル Jev を判定エンジンに使い、ユーザーが YAML で定義した規範カテゴリに対して文書を採点し、違反箇所を文レベルで指摘する。",
+              "",
+              "- ステータス: 承認待ち",
+              "- 日付: 2026-09-18",
+              "",
+              "## 目的と非目的",
+              "",
+              "### 目的",
+              "",
+              "- 日本語の技術文書・ブログ記事などを、規範カテゴリごとに採点し違反箇所を特定する",
+              "- エージェントが skill や hook から呼び出して自律的に文章を修正できるよう、機械可読な出力を提供する",
+              "- 人間の文章チェックツールとしても使える可読出力を提供する",
+              "- `uv tool install jevapan` でインストールでき、設定なしで既定ルールセットが動く",
+              "",
+              "### 非目的",
+              "",
+              "- 修正案の生成。Jev はテキストを生成しない判定モデルであり、修正は呼び出し側（エージェントや人間）が行う",
+              "- 機械的ルールの検査。文長・読点数・表記ゆれの網羅列挙など、決定的に検査できるものは textlint 等の既存ツールの領分。表記ゆれは「意味判定として扱える部分」だけを consistency カテゴリで扱う",
+              "- 英語など他言語の既定ルール。判定エンジン自体は言語非依存だが、同梱プリセットは日本語向け",
+              "",
+              "## 決定事項の一覧",
+              "",
+              "| 項目 | 決定 |",
+              "| --- | --- |",
+              "| ツール名 | jevapan（コマンドは `jevapan` と短縮形 `jvp` の2つを登録） |",
+              "| 責任範囲 | 判定・指摘のみ。修正は呼び出し側 |",
+              "| ルール定義 | YAML テンプレート固定。カテゴリ名・水準・特定指示・severity・threshold・scope のみ書ける |",
+              "| ブロック分割 | 方式A: Jev が行境界ごとに「話題・役割が変わるか」を Noul で判定。完全な Markdown パーサは持たないが、fenced code・front matter・表行は決定的に構文解析して採点対象から除外する(mask.py) |",
+              "| 既定ルール | base / tech-doc / blog の3プリセットを同梱 |",
+              "| ルール層 | Jev のセマンティック判定のみ。決定的ルール層は持たない |",
+              "| コスト制御 | キャッシュ機構は拡張点のみ。v1 は毎回全量判定 |",
+              "| 継承 | `extends:` でプリセット・ファイルを継承しカテゴリをマージ |",
+              "| 一貫性 | `scope: document` で文書横断の判定 |",
+              "| 冗長 | `scope: both` でブロック内と節横断の両方を判定 |",
+              "",
+              "## アーキテクチャ",
+              "",
+              "```",
+              "src/jevapan/",
+              "├── cli.py          … argparse。check サブコマンド",
+              "├── config.py       … jevapan.yaml の探索・読み込み・pydantic 検証",
+              "├── ruleset.py      … ルールセット解決(プリセット名→パス、extends マージ)",
+              "├── mask.py         … 構文領域マスク(fenced code/front matter/表行)の source map",
+              "├── segmenter.py    … 行境界 Noul → ブロック列",
+              "├── scorer.py       … ブロック×カテゴリの Score を fan-out",
+              "├── locator.py      … flag 箇所の文単位 Noul",
+              "├── engine.py       … AsyncTypeSafeClient + Semaphore、リトライ",
+              "├── report.py       … human/json フォーマット、severity→終了コード",
+              "└── rulesets/",
+              "    ├── base.yaml",
+              "    ├── tech-doc.yaml",
+              "    └── blog.yaml",
+              "```",
+              "",
+              "## パイプライン(3段)",
+              "",
+              "```",
+              "入力(ファイル or stdin)",
+              "  → [1] segmenter: 行境界ごとに Noul「ここで話題・役割が変わるか」",
+              "        → ブロック列(行番号範囲つき)",
+              "  → [2] scorer:",
+              "        scope: block のカテゴリ → ブロックごとに1リクエスト、全 block カテゴリの Score を fan-out",
+              "        scope: document のカテゴリ → 文書全体を state に1リクエスト",
+              "        → {score, confidence}",
+              "  → [3] locator: score < threshold のブロック(または文書)×カテゴリだけ",
+              "        候補文に Noul「このカテゴリの違反か」→ 違反文リスト(行番号・確率つき)",
+              "  → report: severity 集約 → human 表示 / JSON → 終了コード",
+              "```",
+              "",
+              "- 全段 `AsyncTypeSafeClient` + `asyncio.Semaphore(20)` で並列。実測で100並列が問題なかった実績あり",
+              "- 同一 state への質問は1リクエストに fan-out する",
+              "- エンジンは生 `typesafe-sdk`。pydantic-ai は構造化 state を質問に渡せず、境界判定・文特定の「候補を state で与える」形が書けないため不採用",
+              "- **既知の制約(score ゲート)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る(recall は score ゲートに依存)。locate 側の確率閾値はカテゴリ別 `locate_threshold`(既定0.6)で調整可能",
+              "- **補助文脈の state 構造**: block 採点と block locate は同じ補助文脈(直近の有効見出し `heading` + 直前の prose 段落 `context`、除外行は含めない)を共有し、評価対象本文(`body`/`block`・`candidates`)と分離して渡す",
+              "",
+              "### 候補の列挙",
+              "",
+              "- **境界候補**: 各非空・非除外行と次の非空・非除外行のペア(空行は飛ばす)。除外行はペアを直接結ばない(質問 window が除外行を含んでしまうため)が、除外領域を挟んだペアが同一リスト木の継続と構文一意に決まる場合はブロックを分割しない(issue #8: 項目内 fence を挟むリストの退化ブロック抑止)。除外領域の先頭行のインデントが最内項目の content 列未満なら項目を閉じる(トップレベルの fence・表行はリストを閉じる。run 内部の行は opaque とみなす。これは CommonMark 規則ではなく本ツールの選択)。ペアは最大30ずつ連続グループに一意に割当てられ、グループの対象範囲+前後余白を共有 state とした共有ウィンドウで判定する(質問はウィンドウ内 index、ウィンドウ端は強制境界にしない)。core・実ペイロードともに文字数予算を超える場合は分割し、それでも収まらないペアは未検査として skipped に記録する",
+              "- **行の3区分**: 行は「採点対象からの除外」「採点するが境界にしない」「通常」の3区分で扱う。除外(fenced code・front matter・表行)は mask.py が決定的に検出し採点対象から外す。「採点するが境界にしない」第3カテゴリは同一リスト木の継続で、開いているリスト項目のコンテキスト(マーカ種別・マーカのインデント・content 列)をスタックで追跡して構文判定する: 最内項目の content 列以上にインデントされた非マーカ継続行(空行を挟んでも同一項目と構文一意に決まる)、最内項目(dedent 後は祖先項目)の content 列以上のマーカ行(ネスト項目・種別不問)、dedent 後の同レベル同種マーカ(兄弟項目)。除外領域の先頭行のインデントが最内項目の content 列未満なら項目を閉じる(トップレベルの fence・表行はリストを閉じる)。空行を挟む loose な項目ペアは抑制せず Jev の意味判定に委ねる(tight 制約はマーカ行のペアにのみ適用)。受容トレードオフとして、同種マーカ連続の途中にある話題転換は構文的に検出しない(質問自体が送られない)",
+              "- **文候補(locator)**: ブロック内を「。」と行単位(箇条書き各行)で分割した文列。プロトタイプで判明した箇条書き接着問題を避けるため、行単位も候補に含める",
+              "- **スコアの数値範囲**: levels の個数-1 が最大(3段なら 0〜2)。threshold はこの数値と比較する",
+              "",
+              "## ルールセット YAML スキーマ",
+              "",
+              "```yaml",
+              "version: 1",
+              "extends: base            # 省略可。プリセット名またはファイルパス",
+              "categories:",
+              "  - name: structure      # 一意。extends 時は同名で上書き、新規名で追加",
+              "    enabled: true        # false で無効化(extends した親のカテゴリを消す用途)",
+              "    scope: block         # block(既定) | document | both",
+              "    severity: warning    # error | warning | info。既定 warning",
+              "    threshold: 1.5       # このスコア未満で flag→文特定へ。既定1.5",
+              "    description: 採点基準の説明(質問の instructions になる)",
+              "    levels:              # 2〜5段。下から違反あり→クリーンの順",
+              "      - 話題が混在し、段落の先頭文を読んでも何の話か分からない",
+              "      - おおむね一トピックだが接続や流れに弱い箇所がある",
+              "      - 一段落一トピックで接続も明示されている"
+            ]
+          },
+          "state_sha256": "c4add893c39ab2ffb16273c04080ea67f705ca0d780def98f1b586f5abeabdf9",
+          "question_keys": [
+            "q3"
+          ],
+          "questions": {
+            "q3": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[0] と lines[2] の間",
+                "b": "lines[9] と lines[11] の間",
+                "c": "lines[16] と lines[18] の間",
+                "d": "lines[2] と lines[4] の間",
+                "e": "lines[7] と lines[9] の間",
+                "f": "lines[77] と lines[79] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q3": {
+              "choice": "e",
+              "confidence": 0.13,
+              "probabilities": {
+                "b": 0.2,
+                "e": 0.28,
+                "f": 0.08,
+                "d": 0.09,
+                "a": 0.08,
+                "c": 0.27
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 3779,
+            "output_tokens": 60
+          },
+          "index": 3,
+          "doc": "design",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                0,
+                2
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                9,
+                11
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                16,
+                18
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                2,
+                4
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "e",
+              "pair": [
+                7,
+                9
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                77,
+                79
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "d",
+          "seed": 20260922,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            0,
+            100
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "extends: base            # 省略可。プリセット名またはファイルパス",
+              "categories:",
+              "  - name: structure      # 一意。extends 時は同名で上書き、新規名で追加",
+              "    enabled: true        # false で無効化(extends した親のカテゴリを消す用途)",
+              "    scope: block         # block(既定) | document | both",
+              "    severity: warning    # error | warning | info。既定 warning",
+              "    threshold: 1.5       # このスコア未満で flag→文特定へ。既定1.5",
+              "    description: 採点基準の説明(質問の instructions になる)",
+              "    levels:              # 2〜5段。下から違反あり→クリーンの順",
+              "      - 話題が混在し、段落の先頭文を読んでも何の話か分からない",
+              "      - おおむね一トピックだが接続や流れに弱い箇所がある",
+              "      - 一段落一トピックで接続も明示されている",
+              "    levels_document:     # scope が document/both のとき文書採点に使う水準。省略時は levels",
+              "      - 同じ主張が複数の節・段落で繰り返されている",
+              "      - 一部の節で内容が重複している",
+              "      - 各節が異なる役割を担い主張の重複がない",
+              "    locate: 候補文に問う Noul 質問  # 省略可。省略時はブロック単位の指摘まで。role条件化(先頭文/接続文/見出し等)と「この文は引用・ルール定義・悪文の説明例ではなく著者自身の記述として違反している」の肯定条件を含める(引用等を著者の悪文と同一視しない)",
+              "    locate_threshold: 0.6  # locate 確率を flag とする閾値。既定0.6、YAML でカテゴリ別に上書き可",
+              "```",
+              "",
+              "### extends のマージ規則",
+              "",
+              "- `extends` はプリセット名または YAML パス。再帰的に解決し循環はエラー",
+              "- カテゴリは `name` でキー。子に同名カテゴリがあればそのフィールドで上書き、なければ追加",
+              "- カテゴリの削除は `enabled: false` を子で書いて無効化する形を取る",
+              "",
+              "### scope の意味",
+              "",
+              "| scope | 採点単位 | 用途 |",
+              "| --- | --- | --- |",
+              "| block | ブロックごと | 段落構成・明確さ・語りなど、局所的に判断できる規範 |",
+              "| document | 文書全体 | 表記ゆれ・用語・文体の統一など、横断的な性質 |",
+              "| both | 両方 | 冗長など、ブロック内と節横断の両方で起きる規範 |",
+              "",
+              "document scope の違反特定は、文書全体をコンテキストに含めた state で候補文を Noul 判定する。「節Aのこの文は節Cと重複」のような横断指摘が可能。",
+              "",
+              "## 既定ルールセット",
+              "",
+              "### base.yaml — 7カテゴリ(全ジャンル共通)",
+              "",
+              "| name | scope | 内容 | 出典 |",
+              "| --- | --- | --- | --- |",
+              "| structure | block | 段落が一トピックでまとまり見出しが内容を具体的に指すか | k16shikano「段落と論証」「見出し」 |",
+              "| clarity | block | 指示語・抽象語の参照が一意に決まり未定義の術語を初出で使わないか | 「読み手の負荷」 |",
+              "| concision | both | ブロック内の繰り返し＋節をまたいだ主張の重複がないか | 「冗長の排除」 |",
+              "| voice | block | 行為者主語の動作の連なりで対象を指す語が具体的か | 「視点と語り」 |",
+              "| naturalness | block | 翻訳調の比喩・擬人化・日本語に存在しない言い回しがないか | 「翻訳調比喩」 |",
+              "| substance | block | 「重要なのは」「まとめると」等の中身のない型がないか | 「LLMっぽい表現」 |",
+              "| consistency | document | 用語・表記・文体が文書内で統一されているか | JTFガイド・textlint系を意味判定に翻訳 |",
+              "",
+              "### tech-doc.yaml — extends: base、+3カテゴリ",
+              "",
+              "| name | scope | 内容 |",
+              "| --- | --- | --- |",
+              "| rigor | block | 断定と推量の使い分け、因果に機構があるか、単一原因への還元がないか |",
+              "| reader_load | block | 後で参照しない固有名・概念の初出順・装飾的精度 |",
+              "| restraint | block | 決め台詞・修辞疑問・太字や感嘆符の多用がないか |",
+              "",
+              "### blog.yaml — extends: base、+2カテゴリ",
+              "",
+              "| name | scope | 内容 |",
+              "| --- | --- | --- |",
+              "| restraint | block | 同上。ブログでも過剰な演出は減点 |",
+              "| honesty | block | 確認していないことを確認した風に書かない、作為的な例への弁明 |",
+              "",
+              "blog.yaml は voice の threshold を緩めに設定（語り口の自由度が高いため）。",
+              "",
+              "全カテゴリの既定 severity は warning。error に上げるかはユーザーの jevapan.yaml で決める運用。",
+              "",
+              "## CLI",
+              "",
+              "```",
+              "jvp check <file...>          # ファイル指定",
+              "jvp check -                  # stdin(hook 用)",
+              "jvp check docs/ -r           # 再帰",
+              "  --ruleset NAME|PATH        # プリセット名 or YAML パス(既定: base)",
+              "  --config PATH              # jevapan.yaml 明示(既定: 自動探索)",
+              "  --format human|json        # 既定: TTY なら human、パイプなら json",
+              "  --concurrency N            # 既定 20",
+              "  --fail-under SCORE         # CI ゲート用(任意)",
+              "```",
+              "",
+              "設定ファイル `jevapan.yaml` / `.jevapan.yaml` をカレントディレクトリから上方に遡って探索。textlint の慣例に倣う。",
+              "",
+              "`[project.scripts]` に `jevapan` と `jvp` の2エントリを登録。",
+              "",
+              "## 出力",
+              "",
+              "### human",
+              "",
+              "節×カテゴリのスコア表＋違反文の一覧(行番号・カテゴリ・確率・テキスト)。",
+              "",
+              "### json — エージェント消費用の安定スキーマ",
+              "",
+              "```json",
+              "{",
+              "  \"file\": \"docs/guide.md\",",
+              "  \"blocks\": [{\"lines\": [1, 8], \"scores\": {\"structure\": {\"score\": 1.9, \"confidence\": 0.8}}}],",
+              "  \"violations\": [{\"lines\": [3, 3], \"scope\": \"block\", \"category\": \"substance\",",
+              "                   \"severity\": \"warning\", \"probability\": 0.91,",
+              "                   \"score\": null, \"confidence\": null,",
+              "                   \"text\": \"重要なのは〜である。\"}],",
+              "  \"skipped\": [{\"category\": \"consistency\", \"reason\": \"state_too_large\"}],",
+              "  \"summary\": {\"blocks\": 12, \"violations\": 4, \"errors\": 0}",
+              "}",
+              "```",
+              "",
+              "違反レコードの結果種別契約:",
+              "",
+              "- **locate 由来**: `probability` に Noul の yes 確率、`score`/`confidence` は null",
+              "- **locate 未指定 flag(Score 由来)**: `probability` は null、`score`/`confidence` に Score の値。Score confidence は水準分布の集中度であり違反確率ではないため `probability` に流用しない",
+              "- human 出力の `P=` 表示は Noul 由来のみ(Score 由来は `score=` 表示)",
+              "",
+              "`skipped` エントリは `{category, reason}`(カテゴリ単位の未検査)または `{stage, reason, lines}`(境界ペア等カテゴリを持たない未検査)。reason は `state_too_large`/`window_state_too_large`/`score_state_too_large`/`locate_state_too_large`/`no_evaluable_prose`。未検査は切り詰め・既定値での継続をせず必ずここに記録する",
+              "",
+              "### 終了コード",
+              "",
+              "- 0: error severity の違反なし(warning/info のみ or clean)",
+              "- 1: error severity の flag が1件以上",
+              "- 2: 実行エラー(API エラー・YAML 不正・引数不正等)",
+              "",
+              "## エラー処理",
+              "",
+              "| 状況 | 挙動 |",
+              "| --- | --- |",
+              "| API キー未設定 | 起動時に終了、exit 2、stderr に設定方法を表示 |",
+              "| API エラー | RetryPolicy で上限付きリトライ、枯渇で exit 2。部分的結果で成功を装わない |",
+              "| document scope が state 上限超過 | そのカテゴリをスキップ、`skipped` に理由を記録 |",
+              "| YAML スキーマ違反 | pydantic で起動時検証、どのカテゴリのどのフィールドが不正かを出して exit 2 |",
+              "| extends の循環 | exit 2、循環したパスを表示 |"
+            ]
+          },
+          "state_sha256": "9e4e264bbed628b9a324fae50d9912d13c63bdb834f0cfcfef25af1559ab9167",
+          "question_keys": [
+            "q4"
+          ],
+          "questions": {
+            "q4": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[86] と lines[88] の間",
+                "b": "lines[24] と lines[26] の間",
+                "c": "lines[88] と lines[90] の間",
+                "d": "lines[107] と lines[109] の間",
+                "e": "lines[20] と lines[22] の間",
+                "f": "lines[36] と lines[38] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q4": {
+              "choice": "e",
+              "confidence": 0.19,
+              "probabilities": {
+                "a": 0.09,
+                "d": 0.06,
+                "e": 0.32,
+                "b": 0.21,
+                "c": 0.08,
+                "f": 0.24
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 3429,
+            "output_tokens": 60
+          },
+          "index": 4,
+          "doc": "design",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                174,
+                176
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                112,
+                114
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "c",
+              "pair": [
+                176,
+                178
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                195,
+                197
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                108,
+                110
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                124,
+                126
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "b",
+          "seed": 20260923,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            88,
+            218
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "# jevapan 設計書",
+              "",
+              "日本語文書をセマンティックに lint する CLI ツール。TypeSafe の System One モデル Jev を判定エンジンに使い、ユーザーが YAML で定義した規範カテゴリに対して文書を採点し、違反箇所を文レベルで指摘する。",
+              "",
+              "- ステータス: 承認待ち",
+              "- 日付: 2026-09-18",
+              "",
+              "## 目的と非目的",
+              "",
+              "### 目的",
+              "",
+              "- 日本語の技術文書・ブログ記事などを、規範カテゴリごとに採点し違反箇所を特定する",
+              "- エージェントが skill や hook から呼び出して自律的に文章を修正できるよう、機械可読な出力を提供する",
+              "- 人間の文章チェックツールとしても使える可読出力を提供する",
+              "- `uv tool install jevapan` でインストールでき、設定なしで既定ルールセットが動く",
+              "",
+              "### 非目的",
+              "",
+              "- 修正案の生成。Jev はテキストを生成しない判定モデルであり、修正は呼び出し側（エージェントや人間）が行う",
+              "- 機械的ルールの検査。文長・読点数・表記ゆれの網羅列挙など、決定的に検査できるものは textlint 等の既存ツールの領分。表記ゆれは「意味判定として扱える部分」だけを consistency カテゴリで扱う",
+              "- 英語など他言語の既定ルール。判定エンジン自体は言語非依存だが、同梱プリセットは日本語向け",
+              "",
+              "## 決定事項の一覧",
+              "",
+              "| 項目 | 決定 |",
+              "| --- | --- |",
+              "| ツール名 | jevapan（コマンドは `jevapan` と短縮形 `jvp` の2つを登録） |",
+              "| 責任範囲 | 判定・指摘のみ。修正は呼び出し側 |",
+              "| ルール定義 | YAML テンプレート固定。カテゴリ名・水準・特定指示・severity・threshold・scope のみ書ける |",
+              "| ブロック分割 | 方式A: Jev が行境界ごとに「話題・役割が変わるか」を Noul で判定。完全な Markdown パーサは持たないが、fenced code・front matter・表行は決定的に構文解析して採点対象から除外する(mask.py) |",
+              "| 既定ルール | base / tech-doc / blog の3プリセットを同梱 |",
+              "| ルール層 | Jev のセマンティック判定のみ。決定的ルール層は持たない |",
+              "| コスト制御 | キャッシュ機構は拡張点のみ。v1 は毎回全量判定 |",
+              "| 継承 | `extends:` でプリセット・ファイルを継承しカテゴリをマージ |",
+              "| 一貫性 | `scope: document` で文書横断の判定 |",
+              "| 冗長 | `scope: both` でブロック内と節横断の両方を判定 |",
+              "",
+              "## アーキテクチャ",
+              "",
+              "```",
+              "src/jevapan/",
+              "├── cli.py          … argparse。check サブコマンド",
+              "├── config.py       … jevapan.yaml の探索・読み込み・pydantic 検証",
+              "├── ruleset.py      … ルールセット解決(プリセット名→パス、extends マージ)",
+              "├── mask.py         … 構文領域マスク(fenced code/front matter/表行)の source map",
+              "├── segmenter.py    … 行境界 Noul → ブロック列",
+              "├── scorer.py       … ブロック×カテゴリの Score を fan-out",
+              "├── locator.py      … flag 箇所の文単位 Noul",
+              "├── engine.py       … AsyncTypeSafeClient + Semaphore、リトライ",
+              "├── report.py       … human/json フォーマット、severity→終了コード",
+              "└── rulesets/",
+              "    ├── base.yaml",
+              "    ├── tech-doc.yaml",
+              "    └── blog.yaml",
+              "```",
+              "",
+              "## パイプライン(3段)",
+              "",
+              "```",
+              "入力(ファイル or stdin)",
+              "  → [1] segmenter: 行境界ごとに Noul「ここで話題・役割が変わるか」",
+              "        → ブロック列(行番号範囲つき)",
+              "  → [2] scorer:",
+              "        scope: block のカテゴリ → ブロックごとに1リクエスト、全 block カテゴリの Score を fan-out",
+              "        scope: document のカテゴリ → 文書全体を state に1リクエスト",
+              "        → {score, confidence}",
+              "  → [3] locator: score < threshold のブロック(または文書)×カテゴリだけ",
+              "        候補文に Noul「このカテゴリの違反か」→ 違反文リスト(行番号・確率つき)",
+              "  → report: severity 集約 → human 表示 / JSON → 終了コード",
+              "```",
+              "",
+              "- 全段 `AsyncTypeSafeClient` + `asyncio.Semaphore(20)` で並列。実測で100並列が問題なかった実績あり",
+              "- 同一 state への質問は1リクエストに fan-out する",
+              "- エンジンは生 `typesafe-sdk`。pydantic-ai は構造化 state を質問に渡せず、境界判定・文特定の「候補を state で与える」形が書けないため不採用",
+              "- **既知の制約(score ゲート)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る(recall は score ゲートに依存)。locate 側の確率閾値はカテゴリ別 `locate_threshold`(既定0.6)で調整可能",
+              "- **補助文脈の state 構造**: block 採点と block locate は同じ補助文脈(直近の有効見出し `heading` + 直前の prose 段落 `context`、除外行は含めない)を共有し、評価対象本文(`body`/`block`・`candidates`)と分離して渡す",
+              "",
+              "### 候補の列挙",
+              "",
+              "- **境界候補**: 各非空・非除外行と次の非空・非除外行のペア(空行は飛ばす)。除外行はペアを直接結ばない(質問 window が除外行を含んでしまうため)が、除外領域を挟んだペアが同一リスト木の継続と構文一意に決まる場合はブロックを分割しない(issue #8: 項目内 fence を挟むリストの退化ブロック抑止)。除外領域の先頭行のインデントが最内項目の content 列未満なら項目を閉じる(トップレベルの fence・表行はリストを閉じる。run 内部の行は opaque とみなす。これは CommonMark 規則ではなく本ツールの選択)。ペアは最大30ずつ連続グループに一意に割当てられ、グループの対象範囲+前後余白を共有 state とした共有ウィンドウで判定する(質問はウィンドウ内 index、ウィンドウ端は強制境界にしない)。core・実ペイロードともに文字数予算を超える場合は分割し、それでも収まらないペアは未検査として skipped に記録する",
+              "- **行の3区分**: 行は「採点対象からの除外」「採点するが境界にしない」「通常」の3区分で扱う。除外(fenced code・front matter・表行)は mask.py が決定的に検出し採点対象から外す。「採点するが境界にしない」第3カテゴリは同一リスト木の継続で、開いているリスト項目のコンテキスト(マーカ種別・マーカのインデント・content 列)をスタックで追跡して構文判定する: 最内項目の content 列以上にインデントされた非マーカ継続行(空行を挟んでも同一項目と構文一意に決まる)、最内項目(dedent 後は祖先項目)の content 列以上のマーカ行(ネスト項目・種別不問)、dedent 後の同レベル同種マーカ(兄弟項目)。除外領域の先頭行のインデントが最内項目の content 列未満なら項目を閉じる(トップレベルの fence・表行はリストを閉じる)。空行を挟む loose な項目ペアは抑制せず Jev の意味判定に委ねる(tight 制約はマーカ行のペアにのみ適用)。受容トレードオフとして、同種マーカ連続の途中にある話題転換は構文的に検出しない(質問自体が送られない)",
+              "- **文候補(locator)**: ブロック内を「。」と行単位(箇条書き各行)で分割した文列。プロトタイプで判明した箇条書き接着問題を避けるため、行単位も候補に含める",
+              "- **スコアの数値範囲**: levels の個数-1 が最大(3段なら 0〜2)。threshold はこの数値と比較する",
+              "",
+              "## ルールセット YAML スキーマ",
+              "",
+              "```yaml",
+              "version: 1",
+              "extends: base            # 省略可。プリセット名またはファイルパス",
+              "categories:",
+              "  - name: structure      # 一意。extends 時は同名で上書き、新規名で追加",
+              "    enabled: true        # false で無効化(extends した親のカテゴリを消す用途)",
+              "    scope: block         # block(既定) | document | both",
+              "    severity: warning    # error | warning | info。既定 warning",
+              "    threshold: 1.5       # このスコア未満で flag→文特定へ。既定1.5",
+              "    description: 採点基準の説明(質問の instructions になる)",
+              "    levels:              # 2〜5段。下から違反あり→クリーンの順",
+              "      - 話題が混在し、段落の先頭文を読んでも何の話か分からない",
+              "      - おおむね一トピックだが接続や流れに弱い箇所がある",
+              "      - 一段落一トピックで接続も明示されている",
+              "    levels_document:     # scope が document/both のとき文書採点に使う水準。省略時は levels",
+              "      - 同じ主張が複数の節・段落で繰り返されている",
+              "      - 一部の節で内容が重複している",
+              "      - 各節が異なる役割を担い主張の重複がない",
+              "    locate: 候補文に問う Noul 質問  # 省略可。省略時はブロック単位の指摘まで。role条件化(先頭文/接続文/見出し等)と「この文は引用・ルール定義・悪文の説明例ではなく著者自身の記述として違反している」の肯定条件を含める(引用等を著者の悪文と同一視しない)",
+              "    locate_threshold: 0.6  # locate 確率を flag とする閾値。既定0.6、YAML でカテゴリ別に上書き可",
+              "```",
+              "",
+              "### extends のマージ規則",
+              "",
+              "- `extends` はプリセット名または YAML パス。再帰的に解決し循環はエラー",
+              "- カテゴリは `name` でキー。子に同名カテゴリがあればそのフィールドで上書き、なければ追加",
+              "- カテゴリの削除は `enabled: false` を子で書いて無効化する形を取る",
+              "",
+              "### scope の意味",
+              "",
+              "| scope | 採点単位 | 用途 |",
+              "| --- | --- | --- |",
+              "| block | ブロックごと | 段落構成・明確さ・語りなど、局所的に判断できる規範 |",
+              "| document | 文書全体 | 表記ゆれ・用語・文体の統一など、横断的な性質 |",
+              "| both | 両方 | 冗長など、ブロック内と節横断の両方で起きる規範 |",
+              "",
+              "document scope の違反特定は、文書全体をコンテキストに含めた state で候補文を Noul 判定する。「節Aのこの文は節Cと重複」のような横断指摘が可能。",
+              "",
+              "## 既定ルールセット",
+              "",
+              "### base.yaml — 7カテゴリ(全ジャンル共通)",
+              "",
+              "| name | scope | 内容 | 出典 |",
+              "| --- | --- | --- | --- |",
+              "| structure | block | 段落が一トピックでまとまり見出しが内容を具体的に指すか | k16shikano「段落と論証」「見出し」 |",
+              "| clarity | block | 指示語・抽象語の参照が一意に決まり未定義の術語を初出で使わないか | 「読み手の負荷」 |",
+              "| concision | both | ブロック内の繰り返し＋節をまたいだ主張の重複がないか | 「冗長の排除」 |",
+              "| voice | block | 行為者主語の動作の連なりで対象を指す語が具体的か | 「視点と語り」 |",
+              "| naturalness | block | 翻訳調の比喩・擬人化・日本語に存在しない言い回しがないか | 「翻訳調比喩」 |",
+              "| substance | block | 「重要なのは」「まとめると」等の中身のない型がないか | 「LLMっぽい表現」 |",
+              "| consistency | document | 用語・表記・文体が文書内で統一されているか | JTFガイド・textlint系を意味判定に翻訳 |",
+              "",
+              "### tech-doc.yaml — extends: base、+3カテゴリ",
+              "",
+              "| name | scope | 内容 |",
+              "| --- | --- | --- |",
+              "| rigor | block | 断定と推量の使い分け、因果に機構があるか、単一原因への還元がないか |",
+              "| reader_load | block | 後で参照しない固有名・概念の初出順・装飾的精度 |",
+              "| restraint | block | 決め台詞・修辞疑問・太字や感嘆符の多用がないか |",
+              "",
+              "### blog.yaml — extends: base、+2カテゴリ",
+              "",
+              "| name | scope | 内容 |",
+              "| --- | --- | --- |",
+              "| restraint | block | 同上。ブログでも過剰な演出は減点 |",
+              "| honesty | block | 確認していないことを確認した風に書かない、作為的な例への弁明 |",
+              "",
+              "blog.yaml は voice の threshold を緩めに設定（語り口の自由度が高いため）。",
+              "",
+              "全カテゴリの既定 severity は warning。error に上げるかはユーザーの jevapan.yaml で決める運用。",
+              "",
+              "## CLI",
+              "",
+              "```",
+              "jvp check <file...>          # ファイル指定",
+              "jvp check -                  # stdin(hook 用)",
+              "jvp check docs/ -r           # 再帰",
+              "  --ruleset NAME|PATH        # プリセット名 or YAML パス(既定: base)",
+              "  --config PATH              # jevapan.yaml 明示(既定: 自動探索)",
+              "  --format human|json        # 既定: TTY なら human、パイプなら json",
+              "  --concurrency N            # 既定 20",
+              "  --fail-under SCORE         # CI ゲート用(任意)",
+              "```",
+              "",
+              "設定ファイル `jevapan.yaml` / `.jevapan.yaml` をカレントディレクトリから上方に遡って探索。textlint の慣例に倣う。",
+              "",
+              "`[project.scripts]` に `jevapan` と `jvp` の2エントリを登録。",
+              "",
+              "## 出力",
+              "",
+              "### human",
+              "",
+              "節×カテゴリのスコア表＋違反文の一覧(行番号・カテゴリ・確率・テキスト)。",
+              "",
+              "### json — エージェント消費用の安定スキーマ",
+              "",
+              "```json",
+              "{",
+              "  \"file\": \"docs/guide.md\",",
+              "  \"blocks\": [{\"lines\": [1, 8], \"scores\": {\"structure\": {\"score\": 1.9, \"confidence\": 0.8}}}],",
+              "  \"violations\": [{\"lines\": [3, 3], \"scope\": \"block\", \"category\": \"substance\",",
+              "                   \"severity\": \"warning\", \"probability\": 0.91,",
+              "                   \"score\": null, \"confidence\": null,",
+              "                   \"text\": \"重要なのは〜である。\"}],",
+              "  \"skipped\": [{\"category\": \"consistency\", \"reason\": \"state_too_large\"}],",
+              "  \"summary\": {\"blocks\": 12, \"violations\": 4, \"errors\": 0}",
+              "}",
+              "```",
+              "",
+              "違反レコードの結果種別契約:",
+              "",
+              "- **locate 由来**: `probability` に Noul の yes 確率、`score`/`confidence` は null",
+              "- **locate 未指定 flag(Score 由来)**: `probability` は null、`score`/`confidence` に Score の値。Score confidence は水準分布の集中度であり違反確率ではないため `probability` に流用しない",
+              "- human 出力の `P=` 表示は Noul 由来のみ(Score 由来は `score=` 表示)",
+              "",
+              "`skipped` エントリは `{category, reason}`(カテゴリ単位の未検査)または `{stage, reason, lines}`(境界ペア等カテゴリを持たない未検査)。reason は `state_too_large`/`window_state_too_large`/`score_state_too_large`/`locate_state_too_large`/`no_evaluable_prose`。未検査は切り詰め・既定値での継続をせず必ずここに記録する",
+              "",
+              "### 終了コード",
+              "",
+              "- 0: error severity の違反なし(warning/info のみ or clean)",
+              "- 1: error severity の flag が1件以上",
+              "- 2: 実行エラー(API エラー・YAML 不正・引数不正等)",
+              "",
+              "## エラー処理",
+              "",
+              "| 状況 | 挙動 |",
+              "| --- | --- |",
+              "| API キー未設定 | 起動時に終了、exit 2、stderr に設定方法を表示 |",
+              "| API エラー | RetryPolicy で上限付きリトライ、枯渇で exit 2。部分的結果で成功を装わない |",
+              "| document scope が state 上限超過 | そのカテゴリをスキップ、`skipped` に理由を記録 |",
+              "| YAML スキーマ違反 | pydantic で起動時検証、どのカテゴリのどのフィールドが不正かを出して exit 2 |",
+              "| extends の循環 | exit 2、循環したパスを表示 |",
+              "| 空文書・評価対象 prose 0(コードのみ等) | 採点・locate を実行せず blocks=[]、document scope カテゴリは `skipped{reason:\"no_evaluable_prose\"}` |",
+              "",
+              "## テスト方針",
+              "",
+              "- ユニット: YAML マージ規則、境界判定→ブロック化の合成、severity→終了コード、scope による採点単位の振り分け。Jev 呼び出しはモック",
+              "- 統合(API 要): 違反を埋め込んだ日本語文書とクリーン文書の `samples/` で、想定カテゴリに flag が立つかのスモーク。`--require-api` フラグで任意実行",
+              "- 実検証: プロトタイプ(jev-practice の doc_lint.py)との結果比較を初回マイルストーンに入れる",
+              "",
+              "## 拡張点(v1 では実装しない)",
+              "",
+              "- ブロック単位キャッシュ(変更ブロックのみ再判定)",
+              "- scope 別パラメータの拡張(locate_document など文書スコープ固有の定義)",
+              "- severity 別の集計や失敗条件の高度化(カテゴリ別ゲート等)",
+              "- 修正案生成(--fix)。Jev 専用方針のため別モデル統合が前提",
+              "",
+              "## 未解決・検証課題",
+              "",
+              "- 境界判定の精度とコスト: 行数に比例する質問数。長い文書で上限を要検証",
+              "- 閾値 1.5 は仮置き。実データで調整が要る",
+              "- document scope の state 上限(具体値は API 仕様で要確認)",
+              "- Jev の日本語判定精度は対象ドメインでの検証が前提(公式方針)"
+            ]
+          },
+          "state_sha256": "d0502e830f9d6b3b8d78d31ba9f036ce9bf2b694acb4b72f1989ca07a1f9f277",
+          "question_keys": [
+            "q5"
+          ],
+          "questions": {
+            "q5": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[226] と lines[228] の間",
+                "b": "lines[0] と lines[2] の間",
+                "c": "lines[220] と lines[222] の間",
+                "d": "lines[203] と lines[205] の間",
+                "e": "lines[233] と lines[235] の間",
+                "f": "lines[178] と lines[180] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q5": {
+              "choice": "b",
+              "confidence": 0.07,
+              "probabilities": {
+                "a": 0.19,
+                "e": 0.11,
+                "d": 0.15,
+                "c": 0.14,
+                "b": 0.22,
+                "f": 0.19
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 7028,
+            "output_tokens": 60
+          },
+          "index": 5,
+          "doc": "design",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                226,
+                228
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                0,
+                2
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                220,
+                222
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                203,
+                205
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                233,
+                235
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                178,
+                180
+              ],
+              "label": "boundary"
+            }
+          ],
+          "correct_key": "f",
+          "seed": 20260924,
+          "reused_continues": [
+            [
+              0,
+              2
+            ]
+          ],
+          "truncated_options": false,
+          "state_range": [
+            0,
+            239
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "# jevapan",
+              "",
+              "日本語文書をセマンティックに lint する CLI。TypeSafe の System One モデル Jev を判定エンジンに使い、YAML で定義した規範カテゴリに対して文書を採点し、違反箇所を文レベルで指摘する。修正案の生成は行わない（判定・指摘のみ）。",
+              "",
+              "## インストール",
+              "",
+              "```bash",
+              "uv tool install .",
+              "# またはリポジトリから",
+              "uv tool install git+https://github.com/drillan/jevapan",
+              "```",
+              "",
+              "`jevapan` と短縮形 `jvp` の2コマンドが登録される。",
+              "",
+              "## セットアップ",
+              "",
+              "```bash",
+              "export TYPESAFE_API_KEY=...",
+              "```",
+              "",
+              "未設定の場合は exit 2 で終了する。",
+              "",
+              "## 使い方",
+              "",
+              "```bash",
+              "jvp check docs/guide.md        # ファイル指定",
+              "jvp check -                    # stdin(hook 用)",
+              "jvp check docs/ -r             # 再帰(*.md, *.txt)",
+              "  --ruleset NAME|PATH          # プリセット名 or YAML パス(既定: base)",
+              "  --config PATH                # jevapan.yaml 明示(既定: 自動探索)",
+              "  --format human|json|auto     # 既定: TTY なら human、パイプなら json",
+              "  --concurrency N              # 既定 20",
+              "  --fail-under SCORE           # CI ゲート用(任意)",
+              "```",
+              "",
+              "同梱プリセット: `base`(全ジャンル共通7カテゴリ) / `tech-doc`(base + rigor, reader_load, restraint) / `blog`(base + restraint, honesty、voice の閾値緩和)。",
+              "",
+              "## jevapan.yaml",
+              "",
+              "カレントディレクトリから上方に遡って `jevapan.yaml` / `.jevapan.yaml` を探索し、選択中のルールセットにマージする。",
+              "",
+              "```yaml",
+              "version: 1",
+              "extends: tech-doc            # 省略可。プリセット名またはファイルパス",
+              "categories:",
+              "  - name: substance          # 既存カテゴリの severity を error に上げる",
+              "    severity: error",
+              "  - name: naturalness        # カテゴリを無効化する",
+              "    enabled: false",
+              "  - name: my_rule            # 新規カテゴリ(description と levels が必須)",
+              "    scope: block             # block(既定) | document | both",
+              "    severity: warning        # error | warning | info",
+              "    threshold: 1.5           # このスコア未満で flag→文特定へ",
+              "    description: \"採点基準の説明(質問の instructions になる)\"",
+              "    levels:                  # 2〜5段。下から違反あり→クリーンの順",
+              "      - \"悪い状態の説明\"",
+              "      - \"良い状態の説明\"",
+              "    locate: \"この文は〜である\"  # 省略可。違反文特定の Noul 指示",
+              "    locate_threshold: 0.6     # locate 確率の flag 閾値。既定0.6、カテゴリ別に上書き可",
+              "```",
+              "",
+              "## 終了コード",
+              "",
+              "- `0`: error severity の違反なし(warning/info のみ or clean)",
+              "- `1`: error severity の flag が1件以上",
+              "- `2`: 実行エラー(API キー未設定・API エラー・YAML 不正・引数不正等)",
+              "",
+              "## JSON 出力",
+              "",
+              "`--format json` でエージェント消費用の安定スキーマを出力する。",
+              "",
+              "```json",
+              "{",
+              "  \"files\": [{",
+              "    \"file\": \"docs/guide.md\",",
+              "    \"blocks\": [{\"lines\": [1, 8], \"scores\": {\"structure\": {\"score\": 1.9, \"confidence\": 0.8}}}],",
+              "    \"doc_scores\": {\"consistency\": {\"score\": 2.0, \"confidence\": 0.9}},",
+              "    \"violations\": [{\"lines\": [3, 3], \"scope\": \"block\", \"category\": \"substance\",",
+              "                     \"severity\": \"warning\", \"probability\": 0.91, \"text\": \"重要なのは〜である。\"}],",
+              "    \"skipped\": [{\"category\": \"consistency\", \"reason\": \"state_too_large\"}],",
+              "    \"summary\": {\"blocks\": 12, \"violations\": 4, \"errors\": 0}",
+              "  }]",
+              "}",
+              "```",
+              "",
+              "## 開発",
+              "",
+              "```bash",
+              "uv sync",
+              "uv run pytest                    # ユニットテスト",
+              "TYPESAFE_API_KEY=... uv run pytest tests/test_integration.py  # 統合(API 要)",
+              "uv run ruff check --fix . && uv run ruff format . && uv run mypy .",
+              "```",
+              "",
+              "## 検証課題",
+              "",
+              "- 境界判定の精度とコスト: 行数に比例する質問数。長い文書での上限は要検証",
+              "- **初回実測(2026-09-18, samples/bad.md)**: 境界候補は「各非空行と次の非空行」のペア(空行は飛ばす)。空行区切りの段落も質問対象になり、prob >= BOUNDARY_THRESHOLD で切断される。切断点は次の非空行の直前で、空行はどちらのブロック行範囲にも含めない",
+              "- `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (行範囲, オフセット, text, category) は pipeline で1件に集約し、scope は実際の出現集合から求める({block,document}→'both')。probability は大きい方を採用する",
+              "- 見出し行(`# まとめ` 等)も文候補として locate の対象になる。structure.locate が見出しを対象とするため候補に残す方針(設計メモ)",
+              "- **構文領域の除外(製品仕様)**: fenced code block(```/~~~)、先頭の front matter(`---`〜`---`)、表行(`|` 始まり)は採点対象から除外する。表行はセル内に日本語 prose を含み得るが、行単位の除外を製品仕様として採用(セル単位の prose 抽出は将来検討)。裸の YAML/JSON「らしさ」判定などのヒューリスティックは入れない。除外は境界候補・採点本文・locate 候補に一貫適用し、除外行はブロックをまたがない(強制切断)。文脈(state の context/document フィールド)には残す。行番号・文字オフセットは原文の source map で保持し、行削除・再採番はしない",
+              "- `threshold` の既定 1.5、`BOUNDARY_THRESHOLD` の 0.5 は初回値。実データで調整が要る",
+              "- **locate_threshold 実測(2026-09-19, jev-1.13.0, 著者条件適用後のルール文)**: `scripts/eval_thresholds.py` で samples/bad.md(176候補)の「採用質問件数/統合後違反件数」は >=0.5:48/41、>=0.6:26/24、>=0.7:8/8、>=0.8:2/2。samples/good.md(26候補)は全閾値で 0 件で分離は良好。concision が最も閾値敏感。既定 0.6 は妥当な初回値と判断。カテゴリ別に `locate_threshold` を YAML で上書き可。なお候補は「score ゲートを通過し locate が実行されたもの」に限定され、ゲートで落ちた候補は含まれない。「採用質問件数」は API 回答件数、「統合後違反件数」は block/document 同一候補を (行範囲,col,text,category) で統合した数(以前の 159候補/38件という記録は前者)",
+              "- **既知の制約(score ゲートの recall)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る。閾値検討用に `scripts/eval_thresholds.py` が locate の生確率をダンプし、0.5/0.6/0.7/0.8 での採用質問件数と統合後違反件数を比較出力する(生確率・候補本文・原文位置・model・usage・入力hash は JSON に保存): `TYPESAFE_API_KEY=... uv run python scripts/eval_thresholds.py samples/bad.md`",
+              "- document scope の state 上限(現在は概算 32000 字で skip)",
+              "- **境界判定の共有ウィンドウ**: 境界ペアは最大30ペアずつの連続グループに一意に割当てられ、各グループの対象範囲+前後余白(最大20行)を1つの state として共有する。core(担当ペアが張る行範囲)自体も ~16000字の文字数予算で分割し、単一ペアでも収まらないペアは「未検査」として `skipped{stage:\"segment\", reason:\"window_state_too_large\", lines}` に記録する(黙って「境界なし」扱いにしない)。質問はウィンドウ内 index で参照し、元行番号との対応はコードが管理する。余白内のペアは重複判定せず、ウィンドウ端を強制境界にしない。グループ単位のリクエストは semaphore 内で asyncio.gather により並列実行される",
+              "- **既知の制約(state サイズ)**: 全 API 呼出しの実ペイロード(state+questions の JSON 概算文字数)に予算を適用する。日本語は概ね 1 文字 ≈ 1 token で、state+質問+回答がモデルの入力制約に収まる必要があるため、採点/locate は 32000 字、共有ウィンドウは 16000 字を保守的な頭金として設計。超過時は切り詰めず skipped で明示する(`state_too_large`/`window_state_too_large`/`score_state_too_large`/`locate_state_too_large`/`no_evaluable_prose`)。locate の候補 state はカテゴリごとに再送される(同一ブロックの flag 済みカテゴリ×候補をまとめる余地あり)",
+              "- Jev の日本語判定精度は対象ドメインでの検証が前提"
+            ]
+          },
+          "state_sha256": "cb7319cf4f32bceab9c005e8686af817dc2a73e82ee9e7de6d560db5a1102e7e",
+          "question_keys": [
+            "q6"
+          ],
+          "questions": {
+            "q6": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[94] と lines[96] の間",
+                "b": "lines[61] と lines[63] の間",
+                "c": "lines[67] と lines[69] の間",
+                "d": "lines[2] と lines[4] の間",
+                "e": "lines[0] と lines[2] の間",
+                "f": "lines[37] と lines[39] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q6": {
+              "choice": "d",
+              "confidence": 0.24,
+              "probabilities": {
+                "a": 0.08,
+                "d": 0.37,
+                "c": 0.11,
+                "f": 0.15,
+                "e": 0.13,
+                "b": 0.16
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 3691,
+            "output_tokens": 60
+          },
+          "index": 6,
+          "doc": "readme",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                94,
+                96
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                61,
+                63
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                67,
+                69
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                2,
+                4
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "e",
+              "pair": [
+                0,
+                2
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                37,
+                39
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "d",
+          "seed": 20260925,
+          "reused_continues": [],
+          "truncated_options": false,
+          "state_range": [
+            0,
+            108
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "# jevapan",
+              "",
+              "日本語文書をセマンティックに lint する CLI。TypeSafe の System One モデル Jev を判定エンジンに使い、YAML で定義した規範カテゴリに対して文書を採点し、違反箇所を文レベルで指摘する。修正案の生成は行わない（判定・指摘のみ）。",
+              "",
+              "## インストール",
+              "",
+              "```bash",
+              "uv tool install .",
+              "# またはリポジトリから",
+              "uv tool install git+https://github.com/drillan/jevapan",
+              "```",
+              "",
+              "`jevapan` と短縮形 `jvp` の2コマンドが登録される。",
+              "",
+              "## セットアップ",
+              "",
+              "```bash",
+              "export TYPESAFE_API_KEY=...",
+              "```",
+              "",
+              "未設定の場合は exit 2 で終了する。",
+              "",
+              "## 使い方",
+              "",
+              "```bash",
+              "jvp check docs/guide.md        # ファイル指定",
+              "jvp check -                    # stdin(hook 用)",
+              "jvp check docs/ -r             # 再帰(*.md, *.txt)",
+              "  --ruleset NAME|PATH          # プリセット名 or YAML パス(既定: base)",
+              "  --config PATH                # jevapan.yaml 明示(既定: 自動探索)",
+              "  --format human|json|auto     # 既定: TTY なら human、パイプなら json",
+              "  --concurrency N              # 既定 20",
+              "  --fail-under SCORE           # CI ゲート用(任意)",
+              "```",
+              "",
+              "同梱プリセット: `base`(全ジャンル共通7カテゴリ) / `tech-doc`(base + rigor, reader_load, restraint) / `blog`(base + restraint, honesty、voice の閾値緩和)。",
+              "",
+              "## jevapan.yaml",
+              "",
+              "カレントディレクトリから上方に遡って `jevapan.yaml` / `.jevapan.yaml` を探索し、選択中のルールセットにマージする。",
+              "",
+              "```yaml",
+              "version: 1",
+              "extends: tech-doc            # 省略可。プリセット名またはファイルパス",
+              "categories:",
+              "  - name: substance          # 既存カテゴリの severity を error に上げる",
+              "    severity: error",
+              "  - name: naturalness        # カテゴリを無効化する",
+              "    enabled: false",
+              "  - name: my_rule            # 新規カテゴリ(description と levels が必須)",
+              "    scope: block             # block(既定) | document | both",
+              "    severity: warning        # error | warning | info",
+              "    threshold: 1.5           # このスコア未満で flag→文特定へ",
+              "    description: \"採点基準の説明(質問の instructions になる)\"",
+              "    levels:                  # 2〜5段。下から違反あり→クリーンの順",
+              "      - \"悪い状態の説明\"",
+              "      - \"良い状態の説明\"",
+              "    locate: \"この文は〜である\"  # 省略可。違反文特定の Noul 指示",
+              "    locate_threshold: 0.6     # locate 確率の flag 閾値。既定0.6、カテゴリ別に上書き可",
+              "```",
+              "",
+              "## 終了コード",
+              "",
+              "- `0`: error severity の違反なし(warning/info のみ or clean)",
+              "- `1`: error severity の flag が1件以上",
+              "- `2`: 実行エラー(API キー未設定・API エラー・YAML 不正・引数不正等)",
+              "",
+              "## JSON 出力",
+              "",
+              "`--format json` でエージェント消費用の安定スキーマを出力する。",
+              "",
+              "```json",
+              "{",
+              "  \"files\": [{",
+              "    \"file\": \"docs/guide.md\",",
+              "    \"blocks\": [{\"lines\": [1, 8], \"scores\": {\"structure\": {\"score\": 1.9, \"confidence\": 0.8}}}],",
+              "    \"doc_scores\": {\"consistency\": {\"score\": 2.0, \"confidence\": 0.9}},",
+              "    \"violations\": [{\"lines\": [3, 3], \"scope\": \"block\", \"category\": \"substance\",",
+              "                     \"severity\": \"warning\", \"probability\": 0.91, \"text\": \"重要なのは〜である。\"}],",
+              "    \"skipped\": [{\"category\": \"consistency\", \"reason\": \"state_too_large\"}],",
+              "    \"summary\": {\"blocks\": 12, \"violations\": 4, \"errors\": 0}",
+              "  }]",
+              "}",
+              "```",
+              "",
+              "## 開発",
+              "",
+              "```bash",
+              "uv sync",
+              "uv run pytest                    # ユニットテスト",
+              "TYPESAFE_API_KEY=... uv run pytest tests/test_integration.py  # 統合(API 要)",
+              "uv run ruff check --fix . && uv run ruff format . && uv run mypy .",
+              "```",
+              "",
+              "## 検証課題",
+              "",
+              "- 境界判定の精度とコスト: 行数に比例する質問数。長い文書での上限は要検証",
+              "- **初回実測(2026-09-18, samples/bad.md)**: 境界候補は「各非空行と次の非空行」のペア(空行は飛ばす)。空行区切りの段落も質問対象になり、prob >= BOUNDARY_THRESHOLD で切断される。切断点は次の非空行の直前で、空行はどちらのブロック行範囲にも含めない",
+              "- `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (行範囲, オフセット, text, category) は pipeline で1件に集約し、scope は実際の出現集合から求める({block,document}→'both')。probability は大きい方を採用する",
+              "- 見出し行(`# まとめ` 等)も文候補として locate の対象になる。structure.locate が見出しを対象とするため候補に残す方針(設計メモ)",
+              "- **構文領域の除外(製品仕様)**: fenced code block(```/~~~)、先頭の front matter(`---`〜`---`)、表行(`|` 始まり)は採点対象から除外する。表行はセル内に日本語 prose を含み得るが、行単位の除外を製品仕様として採用(セル単位の prose 抽出は将来検討)。裸の YAML/JSON「らしさ」判定などのヒューリスティックは入れない。除外は境界候補・採点本文・locate 候補に一貫適用し、除外行はブロックをまたがない(強制切断)。文脈(state の context/document フィールド)には残す。行番号・文字オフセットは原文の source map で保持し、行削除・再採番はしない",
+              "- `threshold` の既定 1.5、`BOUNDARY_THRESHOLD` の 0.5 は初回値。実データで調整が要る",
+              "- **locate_threshold 実測(2026-09-19, jev-1.13.0, 著者条件適用後のルール文)**: `scripts/eval_thresholds.py` で samples/bad.md(176候補)の「採用質問件数/統合後違反件数」は >=0.5:48/41、>=0.6:26/24、>=0.7:8/8、>=0.8:2/2。samples/good.md(26候補)は全閾値で 0 件で分離は良好。concision が最も閾値敏感。既定 0.6 は妥当な初回値と判断。カテゴリ別に `locate_threshold` を YAML で上書き可。なお候補は「score ゲートを通過し locate が実行されたもの」に限定され、ゲートで落ちた候補は含まれない。「採用質問件数」は API 回答件数、「統合後違反件数」は block/document 同一候補を (行範囲,col,text,category) で統合した数(以前の 159候補/38件という記録は前者)",
+              "- **既知の制約(score ゲートの recall)**: `score >= threshold` のブロック・文書は locate されないため、全体は良好でも個別違反を含む箇所を見逃し得る。閾値検討用に `scripts/eval_thresholds.py` が locate の生確率をダンプし、0.5/0.6/0.7/0.8 での採用質問件数と統合後違反件数を比較出力する(生確率・候補本文・原文位置・model・usage・入力hash は JSON に保存): `TYPESAFE_API_KEY=... uv run python scripts/eval_thresholds.py samples/bad.md`",
+              "- document scope の state 上限(現在は概算 32000 字で skip)",
+              "- **境界判定の共有ウィンドウ**: 境界ペアは最大30ペアずつの連続グループに一意に割当てられ、各グループの対象範囲+前後余白(最大20行)を1つの state として共有する。core(担当ペアが張る行範囲)自体も ~16000字の文字数予算で分割し、単一ペアでも収まらないペアは「未検査」として `skipped{stage:\"segment\", reason:\"window_state_too_large\", lines}` に記録する(黙って「境界なし」扱いにしない)。質問はウィンドウ内 index で参照し、元行番号との対応はコードが管理する。余白内のペアは重複判定せず、ウィンドウ端を強制境界にしない。グループ単位のリクエストは semaphore 内で asyncio.gather により並列実行される",
+              "- **既知の制約(state サイズ)**: 全 API 呼出しの実ペイロード(state+questions の JSON 概算文字数)に予算を適用する。日本語は概ね 1 文字 ≈ 1 token で、state+質問+回答がモデルの入力制約に収まる必要があるため、採点/locate は 32000 字、共有ウィンドウは 16000 字を保守的な頭金として設計。超過時は切り詰めず skipped で明示する(`state_too_large`/`window_state_too_large`/`score_state_too_large`/`locate_state_too_large`/`no_evaluable_prose`)。locate の候補 state はカテゴリごとに再送される(同一ブロックの flag 済みカテゴリ×候補をまとめる余地あり)",
+              "- Jev の日本語判定精度は対象ドメインでの検証が前提"
+            ]
+          },
+          "state_sha256": "cb7319cf4f32bceab9c005e8686af817dc2a73e82ee9e7de6d560db5a1102e7e",
+          "question_keys": [
+            "q7"
+          ],
+          "questions": {
+            "q7": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[0] と lines[2] の間",
+                "b": "lines[61] と lines[63] の間",
+                "c": "lines[37] と lines[39] の間",
+                "d": "lines[67] と lines[69] の間",
+                "e": "lines[94] と lines[96] の間",
+                "f": "lines[20] と lines[22] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q7": {
+              "choice": "f",
+              "confidence": 0.15,
+              "probabilities": {
+                "d": 0.1,
+                "e": 0.11,
+                "f": 0.27999999999999997,
+                "a": 0.25,
+                "c": 0.11,
+                "b": 0.15
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 3693,
+            "output_tokens": 60
+          },
+          "index": 7,
+          "doc": "readme",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                0,
+                2
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                61,
+                63
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "c",
+              "pair": [
+                37,
+                39
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                67,
+                69
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                94,
+                96
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "f",
+              "pair": [
+                20,
+                22
+              ],
+              "label": "boundary"
+            }
+          ],
+          "correct_key": "f",
+          "seed": 20260926,
+          "reused_continues": [
+            [
+              0,
+              2
+            ],
+            [
+              37,
+              39
+            ],
+            [
+              61,
+              63
+            ],
+            [
+              67,
+              69
+            ],
+            [
+              94,
+              96
+            ]
+          ],
+          "truncated_options": false,
+          "state_range": [
+            0,
+            108
+          ]
+        },
+        {
+          "state": {
+            "lines": [
+              "# 概要",
+              "",
+              "本章では、分散キャッシュの設計について多角的に分析し、重要な概念を正面から扱う。重要なのは一貫性と可用性のトレードオフである。この問いは開かれている。",
+              "",
+              "キャッシュはデータを運ぶ。ベクトルが選好を運ぶように、キャッシュノードは一貫性を運ぶ。モデルは配置を知っている。つまり、一貫性はキャッシュに宿るのである。",
+              "",
+              "この手法は筋がいい。規範スキルが効く。非常に重要なので、ここで深掘りする。",
+              "",
+              "# 実装の詳細",
+              "",
+              "実装は /src/cache/consistent_hash_v2_final.py にある。設定は config.prod.yaml を参照。",
+              "",
+              "一貫性は重要である。一貫性が重要だということは、つまり一貫性を重視すべきだということである。",
+              "",
+              "読者は驚くだろう。なんと、一貫性と可用性は両立しないのだ！",
+              "",
+              "しかし一方で、これは本当に正しいのだろうか？正しい。",
+              "",
+              "# まとめ",
+              "",
+              "まとめると、一貫性は重要である。要するに、設計は難しいということに他ならない。"
+            ]
+          },
+          "state_sha256": "9bebd866301109e95c33838b86f94e6c7d15d1112a2445c73783075105e4b56e",
+          "question_keys": [
+            "q8"
+          ],
+          "questions": {
+            "q8": {
+              "type": "choice",
+              "instructions": "The document is given as numbered lines in state.lines. Exactly one of the following junctions begins a new block — a change of topic, role, or structure. Which one?",
+              "criteria": {
+                "a": "lines[8] と lines[10] の間",
+                "b": "lines[2] と lines[4] の間",
+                "c": "lines[18] と lines[20] の間",
+                "d": "lines[14] と lines[16] の間",
+                "e": "lines[0] と lines[2] の間"
+              }
+            }
+          },
+          "probs": {},
+          "choices": {
+            "q8": {
+              "choice": "a",
+              "confidence": 0.53,
+              "probabilities": {
+                "d": 0.15,
+                "b": 0.05,
+                "a": 0.62,
+                "c": 0.09,
+                "e": 0.09
+              }
+            }
+          },
+          "model": "jev-1.13.0",
+          "usage": {
+            "input_tokens": 889,
+            "output_tokens": 53
+          },
+          "index": 8,
+          "doc": "bad",
+          "options": [
+            {
+              "key": "a",
+              "pair": [
+                8,
+                10
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "b",
+              "pair": [
+                2,
+                4
+              ],
+              "label": "boundary"
+            },
+            {
+              "key": "c",
+              "pair": [
+                18,
+                20
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "d",
+              "pair": [
+                14,
+                16
+              ],
+              "label": "continue"
+            },
+            {
+              "key": "e",
+              "pair": [
+                0,
+                2
+              ],
+              "label": "continue"
+            }
+          ],
+          "correct_key": "b",
+          "seed": 20260927,
+          "reused_continues": [],
+          "truncated_options": true,
+          "state_range": [
+            0,
+            21
+          ]
+        }
+      ],
+      "models": [
+        "jev-1.13.0"
+      ],
+      "n_requests": 9,
+      "model_consistent": true,
+      "discard": false,
+      "n_correct": 2
+    }
+  ],
+  "stages": [
+    "choice2"
+  ]
+}
