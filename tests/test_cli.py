@@ -195,7 +195,13 @@ def test_check_no_default_excludes_flag(monkeypatch: Any, tmp_path: Any) -> None
     fake.doc_scores = {}
     seen: list[str] = []
 
-    async def spy(engine: Any, text: str, ruleset: Any, label: str) -> Any:
+    async def spy(
+        engine: Any,
+        text: str,
+        ruleset: Any,
+        label: str,
+        limits: Any = None,
+    ) -> Any:
         seen.append(label)
         fake.file = label
         return fake
@@ -235,7 +241,13 @@ def test_check_exclude_option(monkeypatch: Any, tmp_path: Any) -> None:
     fake.doc_scores = {}
     seen: list[str] = []
 
-    async def spy(engine: Any, text: str, ruleset: Any, label: str) -> Any:
+    async def spy(
+        engine: Any,
+        text: str,
+        ruleset: Any,
+        label: str,
+        limits: Any = None,
+    ) -> Any:
         seen.append(label)
         fake.file = label
         return fake
@@ -367,3 +379,47 @@ def test_load_dotenv_ignores_invalid_keys(monkeypatch: Any, tmp_path: Any) -> No
     )
     _load_dotenv(tmp_path / ".env")
     assert env == {"OK_KEY": "v"}
+
+
+def test_check_state_limit_rejects_nonpositive(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    monkeypatch.setattr("sys.stdin", io.StringIO("text\n"))
+    assert main(["check", "-", "--doc-state-limit", "0"]) == 2
+    assert "--doc-state-limit" in capsys.readouterr().err
+
+
+def test_check_state_limit_passed_to_lint_text(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    monkeypatch.setattr("sys.stdin", io.StringIO("text\n"))
+    fake = AsyncMock()
+    fake.summary = {"blocks": 0, "violations": 0, "errors": 0}
+    fake.violations = []
+    fake.skipped = []
+    fake.blocks = []
+    fake.block_scores = []
+    fake.doc_scores = {}
+    fake.file = "<stdin>"
+    lt = AsyncMock(return_value=fake)
+    with (
+        patch("jevapan.cli._make_engine") as me,
+        patch("jevapan.cli.lint_text", lt),
+    ):
+        me.return_value = AsyncMock()
+        assert (
+            main(
+                [
+                    "check",
+                    "-",
+                    "--score-state-limit",
+                    "100",
+                    "--window-state-limit",
+                    "50",
+                ]
+            )
+            == 0
+        )
+        limits = lt.call_args.args[4]
+        assert limits.score_state == 100
+        assert limits.window_state == 50
+        assert limits.locate_state == 32000
+        assert limits.doc_state == 32000

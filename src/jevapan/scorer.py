@@ -51,10 +51,11 @@ async def score_blocks(
     doc_lines: list[str] | None = None,
     excluded: AbstractSet[int] = frozenset(),
     skipped: list[dict[str, Any]] | None = None,
+    state_limit: int = SCORE_STATE_LIMIT,
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
     # 採点指示は全文書・全ブロックで完全に同一にする。プレースホルダは
-    # `[excluded: <種別>]` の自己説明型のため別途の説明文は要らない
+    # `[除外: <種別>]` の自己説明型のため別途の説明文は要らない
     # (指示が入力条件で変わる issue #16 型回帰の根絶。issue #19)
     questions = {
         c.name: (c.description + AUTHOR_SCOPE_CLAUSE, c.levels) for c in targets
@@ -70,7 +71,7 @@ async def score_blocks(
         # Block.text 自体は行番号忠実性のため生テキストを維持する
         body = masked_slice(b.text.splitlines(), b.start, excluded)
         state = {"heading": heading, "context": context, "body": body}
-        if payload_chars(state, questions) > SCORE_STATE_LIMIT:
+        if payload_chars(state, questions) > state_limit:
             if skipped is not None:
                 skipped.extend(
                     {

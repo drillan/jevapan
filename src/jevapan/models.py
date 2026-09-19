@@ -42,6 +42,19 @@ class Violation:
         return (self.start, self.end)
 
 
+@dataclass(frozen=True)
+class Limits:
+    """API 呼出しペイロード(state+questions)の文字数予算。
+
+    既定値は各段のモジュール定数(SCORE_STATE_LIMIT・LOCATE_STATE_LIMIT・
+    STATE_DOC_LIMIT・WINDOW_STATE_CHARS)と同じ。CLI で上書きする。"""
+
+    score_state: int = 32000
+    locate_state: int = 32000
+    doc_state: int = 32000
+    window_state: int = 16000
+
+
 @dataclass
 class LintResult:
     file: str

@@ -9,7 +9,7 @@ from jevapan.locator import (
     locate_in_document,
 )
 from jevapan.mask import analyze_syntax, masked_text
-from jevapan.models import LintResult, Violation
+from jevapan.models import Limits, LintResult, Violation
 from jevapan.ruleset import Ruleset, Scope
 from jevapan.scorer import score_blocks, score_document
 from jevapan.segmenter import segment
@@ -50,14 +50,20 @@ def _merge_duplicates(violations: list[Violation]) -> list[Violation]:
 
 
 async def lint_text(
-    engine: Engine, text: str, ruleset: Ruleset, file_label: str
+    engine: Engine,
+    text: str,
+    ruleset: Ruleset,
+    file_label: str,
+    limits: Limits | None = None,
 ) -> LintResult:
     # ファイルごとのリクエストログ。contextvar なので同一 Engine を共有する
     # 並列 lint_text でも帰属が混ざらない。例外時も reset して漏らさない
     usage_log: list[CallRecord] = []
     token = USAGE_LOG.set(usage_log)
     try:
-        return await _lint_text(engine, text, ruleset, file_label, usage_log)
+        return await _lint_text(
+            engine, text, ruleset, file_label, usage_log, limits or Limits()
+        )
     finally:
         USAGE_LOG.reset(token)
 
@@ -68,6 +74,7 @@ async def _lint_text(
     ruleset: Ruleset,
     file_label: str,
     usage_log: list[CallRecord],
+    limits: Limits,
 ) -> LintResult:
     lines = text.splitlines() or [""]
     cats = [c for c in ruleset.categories if c.enabled]
@@ -78,7 +85,7 @@ async def _lint_text(
     # サイズ上限チェックは全 API 呼出しの前に行う
     skipped: list[dict[str, Any]] = []
     doc_cats = [c for c in cats if c.scope in (Scope.document, Scope.both)]
-    doc_oversize = bool(doc_cats) and len(masked) > STATE_DOC_LIMIT
+    doc_oversize = bool(doc_cats) and len(masked) > limits.doc_state
     if doc_oversize:
         skipped += [{"category": c.name, "reason": "state_too_large"} for c in doc_cats]
 
@@ -102,9 +109,17 @@ async def _lint_text(
             calls=usage_log,
         )
 
-    blocks = await segment(engine, text, excluded, skipped=skipped)
+    blocks = await segment(
+        engine, text, excluded, skipped=skipped, window_state=limits.window_state
+    )
     block_scores = await score_blocks(
-        engine, blocks, cats, doc_lines=lines, excluded=excluded, skipped=skipped
+        engine,
+        blocks,
+        cats,
+        doc_lines=lines,
+        excluded=excluded,
+        skipped=skipped,
+        state_limit=limits.score_state,
     )
     doc_scores = {} if doc_oversize else await score_document(engine, masked, cats)
 
@@ -118,7 +133,16 @@ async def _lint_text(
             if cs.score >= cat.threshold:
                 continue
             if cat.locate:
-                tasks.append(locate_in_block(engine, sb.block, cat, lines, excluded))
+                tasks.append(
+                    locate_in_block(
+                        engine,
+                        sb.block,
+                        cat,
+                        lines,
+                        excluded,
+                        state_limit=limits.locate_state,
+                    )
+                )
                 task_cats.append(name)
             else:
                 # Score 由来の flag: probability は持たず score/confidence を
@@ -141,7 +165,16 @@ async def _lint_text(
         if cs.score >= cat.threshold:
             continue
         if cat.locate:
-            tasks.append(locate_in_document(engine, masked, cat, lines, excluded))
+            tasks.append(
+                locate_in_document(
+                    engine,
+                    masked,
+                    cat,
+                    lines,
+                    excluded,
+                    state_limit=limits.locate_state,
+                )
+            )
             task_cats.append(name)
         else:
             violations.append(
