@@ -5,6 +5,7 @@ from typing import Any
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
+from jevapan.mask import PLACEHOLDER_NOTE, masked_slice
 from jevapan.models import Block
 from jevapan.ruleset import Category, Scope
 
@@ -17,7 +18,7 @@ SCORE_STATE_LIMIT = 32000
 # 同一視しない)。全カテゴリに一貫適用するためコード側で付与する
 AUTHOR_SCOPE_CLAUSE = (
     " 評価対象は著者自身の記述のみとし、引用・悪文の説明例・ルール定義の"
-    "中の文は採点対象としない。"
+    "中の文は採点対象としない。" + PLACEHOLDER_NOTE
 )
 
 
@@ -62,7 +63,10 @@ async def score_blocks(
         heading = nearest_heading(doc_lines, b.start, excluded) if doc_lines else ""
         # 補助文脈(直前 prose 段落)は locator と共有し、本文(body)と分離
         context = preceding_context(doc_lines, b.start, excluded) if doc_lines else ""
-        state = {"heading": heading, "context": context, "body": b.text}
+        # 除外領域を内包するブロックでは body の除外行をマスクする。
+        # Block.text 自体は行番号忠実性のため生テキストを維持する
+        body = masked_slice(b.text.splitlines(), b.start, excluded)
+        state = {"heading": heading, "context": context, "body": body}
         if payload_chars(state, questions) > SCORE_STATE_LIMIT:
             if skipped is not None:
                 skipped.extend(

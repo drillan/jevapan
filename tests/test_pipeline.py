@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult, ScoreResult
+from jevapan.mask import MASK_PLACEHOLDER
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
 
@@ -59,6 +60,33 @@ async def test_document_locate_state_overflow_is_skipped() -> None:
     res = await lint_text(eng, "あ。" * 15000, rs, "f.md")
     assert res.skipped == [{"category": "c", "reason": "locate_state_too_large"}]
     assert res.violations == []
+
+
+async def test_document_locate_receives_masked_document() -> None:
+    """document locate の state["document"] は masked テキストを使う。
+    fence コード・front matter・表が生で混入しない(issue #8)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1}))  # type: ignore[method-assign]
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(0.0, 0.0)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "document",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                    "locate": "x?",
+                }
+            ]
+        },
+        "t",
+    )
+    await lint_text(eng, "前文。\n```\ncode()\n```", rs, "f.md")
+    doc = eng.noul_batch.call_args.args[0]["document"]
+    assert "code()" not in doc and MASK_PLACEHOLDER in doc
 
 
 async def test_pipeline_merges_duplicate_violations() -> None:

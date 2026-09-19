@@ -13,6 +13,13 @@ _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 MASK_PLACEHOLDER = "[excluded]"
 
+# scorer/locator の質問文に付す説明。masked 入力に現れる
+# プレースホルダを評価対象の文章と誤認させないための1文
+PLACEHOLDER_NOTE = (
+    f"{MASK_PLACEHOLDER} はコードブロック・表・front matter を"
+    "置き換えた目印であり評価対象の文章ではない。"
+)
+
 
 def _open_fence(line: str) -> tuple[str, int] | None:
     m = _FENCE_RE.match(line)
@@ -63,6 +70,15 @@ def analyze_syntax(lines: list[str]) -> frozenset[int]:
         elif lines[i].lstrip().startswith("|"):
             excluded.add(i)
     return frozenset(excluded)
+
+
+def masked_slice(lines: list[str], start: int, excluded: AbstractSet[int]) -> str:
+    """doc 行番号 start(1始まり)から始まる行断片を、doc レベルの
+    除外集合でマスクしたテキストを返す(ブロック採点の body 構築用)。
+    除外領域を内包するブロックのコード等を scorer に見せない。"""
+    return masked_text(
+        lines, {off for off in range(len(lines)) if start - 1 + off in excluded}
+    )
 
 
 def masked_text(lines: list[str], excluded: AbstractSet[int]) -> str:

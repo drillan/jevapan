@@ -4,6 +4,7 @@ from contextvars import ContextVar
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
+from jevapan.mask import PLACEHOLDER_NOTE, masked_slice
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
@@ -61,15 +62,16 @@ async def locate_in_block(
     if not cands:
         return []
     # 補助文脈は scorer と共有: 直近見出し + 直前の prose 段落(除外行は
-    # 含めない)。本文(block)と分離して渡す
+    # 含めない)。本文(block)と分離して渡す。除外領域をまたぐブロック
+    # では scorer と同様に除外行をマスクする
     state = {
         "heading": nearest_heading(doc_lines, block.start, excluded),
         "context": preceding_context(doc_lines, block.start, excluded),
-        "block": block.text,
+        "block": masked_slice(block.text.splitlines(), block.start, excluded),
         "candidates": [t for _, _, t in cands],
     }
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]` {PLACEHOLDER_NOTE}"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
@@ -106,14 +108,16 @@ async def locate_in_document(
 ) -> list[Violation]:
     if not category.locate:
         return []
-    pseudo = Block(1, len(all_lines), text)
+    # pseudo Block は start/end のみ使う(split_candidates が参照するのは
+    # start のみ)。text は masked なので行範囲と一致せず入れない
+    pseudo = Block(1, len(all_lines), "")
     cands = split_candidates(pseudo, all_lines, excluded)
     if not cands:
         return []
     document = text[:16000]
     state = {"document": document, "candidates": [t for _, _, t in cands]}
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]` {PLACEHOLDER_NOTE}"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:

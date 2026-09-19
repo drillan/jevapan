@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult
-from jevapan.locator import locate_in_block, split_candidates
+from jevapan.locator import locate_in_block, locate_in_document, split_candidates
+from jevapan.mask import MASK_PLACEHOLDER
 from jevapan.models import Block
 from jevapan.ruleset import Category
 
@@ -43,6 +44,44 @@ async def test_locate_in_block_uses_preceding_context() -> None:
     assert "直前の段落。" in kw["state"]["context"]
     assert kw["state"]["block"] == "対象の文。"
     assert "a。" not in kw["state"]["context"]
+
+
+async def test_locate_in_block_masks_excluded_lines_in_state() -> None:
+    """除外領域をまたぐブロックでは state["block"] の除外行を
+    プレースホルダ化する(scorer と同じ除外集合)。fence コードが
+    locate 文脈に混入しない(issue #8)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1, "s1": 0.1}))  # type: ignore[method-assign]
+    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
+    excluded = {1, 2, 3}
+    block = Block(1, 5, "\n".join(doc_lines))
+    await locate_in_block(eng, block, cat, doc_lines, excluded)
+    shown = eng.noul_batch.call_args.kwargs["state"]["block"]
+    assert "code()" not in shown and "```" not in shown
+    assert MASK_PLACEHOLDER in shown
+    assert "- 項目A" in shown and "- 項目B" in shown
+
+
+async def test_locate_questions_explain_excluded_placeholder() -> None:
+    """locate の質問にも [excluded] がコードブロック・表・front matter の
+    置換目印で評価対象の文章ではない旨を含める(state の masked 入力と
+    一致させる。block/document 両経路)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value=NoulResult(probs={"s0": 0.1})
+    )
+    block = Block(1, 1, "対象文。")
+    await locate_in_block(eng, block, cat, ["対象文。"])
+    q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
+    assert "[excluded]" in q and "評価対象の文章ではない" in q
+
+    eng.noul_batch.reset_mock()
+    eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1})
+    await locate_in_document(eng, "対象文。", cat, ["対象文。"])
+    q = eng.noul_batch.call_args.args[1]["s0"]
+    assert "[excluded]" in q and "評価対象の文章ではない" in q
 
 
 async def test_locate_in_block_raises_when_payload_too_large() -> None:
