@@ -1,0 +1,421 @@
+{
+  "labeling": {
+    "labeler": "advisor (claude)",
+    "date": "2026-09-19",
+    "criteria_ref": "scripts/boundary_eval_data.json の labeling.criteria と同一規則を適用",
+    "index_note": "i/j はいずれも各 source の doc レベル0始まり行 index(窓ローカルではない)",
+    "overlap_note": "plan_eb は plan.md 1250-1736 窓の候補30件のうち先頭20件。残り10件は既存 boundary_eval_data.json の doc=='window' と同一ペア(窓ローカル index = doc index - 1678)なので重複登録していない",
+    "effective_n_note": "plan_eb は Run→Expected / ---→見出し / **Files:**→項目 など少数の定型パターンの繰り返しで、独立標本ではない。AUC の実効自由度は名目件数より小さい。散文が豊富なのは readme/bad/good の25件",
+    "criteria": [
+      "Run:→Expected: は continue(hub 裁定 2026-09-19)"
+    ],
+    "revision": "2026-09-19 rev2: Run:→Expected: の either 6件を continue へ(hub 裁定)"
+  },
+  "labels": [
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1250,
+      "j": 1251,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1258,
+      "j": 1260,
+      "label": "either",
+      "stratum": "full",
+      "note": "thematic break。前後どちらの節に属すかが恣意的(窓W と同じ扱い)"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1260,
+      "j": 1262,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1262,
+      "j": 1263,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Files:** とその中身"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1266,
+      "j": 1268,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Files セクション終了 → Interfaces セクション開始"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1268,
+      "j": 1269,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Interfaces:** とその中身"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1361,
+      "j": 1363,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその実行内容"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1363,
+      "j": 1364,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1364,
+      "j": 1366,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Step 2 の Expected → Step 3 の開始"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1499,
+      "j": 1501,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその実行内容"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1501,
+      "j": 1502,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1509,
+      "j": 1511,
+      "label": "either",
+      "stratum": "full",
+      "note": "thematic break"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1511,
+      "j": 1513,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1513,
+      "j": 1514,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Files:** とその中身"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1515,
+      "j": 1517,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Files セクション終了 → Interfaces セクション開始"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1517,
+      "j": 1518,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Interfaces:** とその中身"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1519,
+      "j": 1521,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Interfaces(仕様) → Steps(手順)へ役割が変わる"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1564,
+      "j": 1566,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその実行内容"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1566,
+      "j": 1567,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "plan_eb",
+      "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+      "i": 1567,
+      "j": 1569,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Step 2 の Expected → Step 3 の開始"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 0,
+      "j": 2,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H1 と直後のリード文"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 2,
+      "j": 4,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "リード文 → インストール節の見出し"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 12,
+      "j": 14,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "インストール節の末尾 → セットアップ節の見出し"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 20,
+      "j": 22,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "セットアップ節の末尾 → 使い方節の見出し"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 35,
+      "j": 37,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "使い方節の末尾 → jevapan.yaml 節の見出し"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 37,
+      "j": 39,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 61,
+      "j": 63,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 65,
+      "j": 67,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "終了コード節の末尾 → JSON 出力節の見出し"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 67,
+      "j": 69,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "readme",
+      "source": "README.md",
+      "i": 94,
+      "j": 96,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 0,
+      "j": 2,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H1 と直後のリード段落"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 2,
+      "j": 4,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "概要の導入 → 比喩による説明。話題が変わる"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 4,
+      "j": 6,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "比喩段落 → 評価段落"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 6,
+      "j": 8,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "本文末 → 実装の詳細節の見出し"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 8,
+      "j": 10,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 10,
+      "j": 12,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "実装の所在 → 一貫性の主張。話題が変わる"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 12,
+      "j": 14,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "同語反復の段落 → 新しい主張(両立しない)の提示"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 14,
+      "j": 16,
+      "label": "continue",
+      "stratum": "full",
+      "note": "「しかし一方で」で直前の命題を受けており、同一の議論の継続"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 16,
+      "j": 18,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "本文末 → まとめ節の見出し"
+    },
+    {
+      "doc": "bad",
+      "source": "samples/bad.md",
+      "i": 18,
+      "j": 20,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "good",
+      "source": "samples/good.md",
+      "i": 0,
+      "j": 2,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H1 と直後のリード段落"
+    },
+    {
+      "doc": "good",
+      "source": "samples/good.md",
+      "i": 2,
+      "j": 4,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "トレードオフの存在の説明 → その調整方法という新主題。指示語で連結されるが主題は変わる"
+    },
+    {
+      "doc": "good",
+      "source": "samples/good.md",
+      "i": 4,
+      "j": 6,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "本文末 → 新セクションの見出し"
+    },
+    {
+      "doc": "good",
+      "source": "samples/good.md",
+      "i": 6,
+      "j": 8,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "good",
+      "source": "samples/good.md",
+      "i": 8,
+      "j": 10,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "設定値の決め方 → 運用時の対処。別トピック"
+    }
+  ]
+}

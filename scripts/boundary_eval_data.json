@@ -1,0 +1,534 @@
+{
+  "window": {
+    "source": "docs/superpowers/plans/2026-09-18-jevapan.md",
+    "doc_lines": [
+      1679,
+      1763
+    ],
+    "lines": [
+      "`--config` の取り込みは `load_effective_ruleset` に渡す形にする — Task 3 の `load_effective_ruleset(ruleset, cwd)` は自動探索なので、`--config` 指定時はそのファイルをユーザー yaml として読む分岐を `_run` 内か `load_effective_ruleset` に追加する。実装者は `load_effective_ruleset` に `config_path: Path | None = None` 引数を足し、指定時は探索をスキップしてそのファイルを使うこと。",
+      "",
+      "- [ ] **Step 4: テスト通過確認 → lint/mypy → コミット**",
+      "",
+      "Run: `uv run pytest tests/test_cli.py -v && uv run ruff check . && uv run mypy .`",
+      "Expected: PASS、mypy エラーがあれば型注釈を直す",
+      "",
+      "```bash",
+      "git add src/jevapan/cli.py tests/test_cli.py src/jevapan/ruleset.py",
+      "git commit -m \"add check subcommand with stdin and json output\"",
+      "```",
+      "",
+      "---",
+      "",
+      "### Task 11: 統合サンプルと README",
+      "",
+      "**Files:**",
+      "- Create: `samples/bad.md`, `samples/good.md` (jev-practice のものを日本語向けに移植)",
+      "- Create: `tests/test_integration.py`",
+      "- Modify: `README.md`",
+      "",
+      "**Interfaces:**",
+      "- 統合テストは `TYPESAFE_API_KEY` があるときだけ動く",
+      "",
+      "- [ ] **Step 1: 統合テスト(APIキー任意)**",
+      "",
+      "```python",
+      "# tests/test_integration.py",
+      "import os",
+      "import pytest",
+      "from jevapan.cli import main",
+      "",
+      "pytestmark = pytest.mark.skipif(",
+      "    not os.environ.get(\"TYPESAFE_API_KEY\"), reason=\"requires TYPESAFE_API_KEY\"",
+      ")",
+      "",
+      "",
+      "def test_bad_doc_flags_violations(capsys):",
+      "    assert main([\"check\", \"samples/bad.md\", \"--format\", \"json\"]) in (0, 1)",
+      "    import json",
+      "",
+      "    out = json.loads(capsys.readouterr().out)",
+      "    assert out[\"files\"][0][\"summary\"][\"violations\"] > 0",
+      "",
+      "",
+      "def test_good_doc_mostly_clean(capsys):",
+      "    main([\"check\", \"samples/good.md\", \"--format\", \"json\"])",
+      "    import json",
+      "",
+      "    out = json.loads(capsys.readouterr().out)",
+      "    errors = [",
+      "        v for f in out[\"files\"] for v in f[\"violations\"] if v[\"severity\"] == \"error\"",
+      "    ]",
+      "    assert errors == []",
+      "```",
+      "",
+      "- [ ] **Step 2: samples を移植**",
+      "",
+      "jev-practice の `samples/bad.md` `samples/good.md` をコピーして調整(既に日本語)。",
+      "",
+      "- [ ] **Step 3: README を書く**",
+      "",
+      "インストール(`uv tool install .` または git+https)、使い方、jevapan.yaml の例、終了コード、API キー設定を記述。",
+      "",
+      "- [ ] **Step 4: 全テスト実行 → コミット**",
+      "",
+      "Run: `uv run pytest -v` (統合テストはキーがあれば実行、なければ skip)",
+      "Expected: PASS",
+      "",
+      "```bash",
+      "git add samples tests/test_integration.py README.md",
+      "git commit -m \"add integration samples and readme\"",
+      "```",
+      "",
+      "---",
+      "",
+      "### Task 12: 実検証(手動)",
+      "",
+      "- [ ] **Step 1: プロトタイプとの比較実行**",
+      "",
+      "`jev-practice` の `samples/bad.md` `samples/good.md` `findings.md` に対して `jvp check` を実行し、旧 `doc_lint.py` の結果と突き合わせる。想定カテゴリに flag が立つか、箇条書き接着が解消されたかを確認する。",
+      "",
+      "- [ ] **Step 2: 閾値・指示文の初回調整**",
+      "",
+      "境界検出の精度(過分割/未分割)を実文書で確認し、BOUNDARY_INSTRUCTION や BOUNDARY_THRESHOLD の初期値を記録して README の検証課題に反映する。"
+    ]
+  },
+  "design": {
+    "source": "docs/superpowers/specs/2026-09-18-jevapan-design.md",
+    "n_lines": 239
+  },
+  "labeling": {
+    "labeler": "advisor (claude)",
+    "date": "2026-09-19",
+    "criteria": [
+      "boundary: 話題または役割が変わり、読み手が別の単位として扱う点",
+      "continue: 同一の論理単位(見出しとその本文、ラベル行とその中身、手順とその説明)",
+      "either: 原理的に一意に決まらない、または同等に妥当な二解釈がある",
+      "見出し→直後の本文は continue。structure カテゴリが『見出しが内容を具体的に指すか』を採点するため、見出しと本文は同一ブロックで評価される必要がある",
+      "H2→直下のH3(間に本文なし)は continue。上位見出しは容器にすぎず話題は変わらない",
+      "thematic break(---)は prose を持たないため前後どちらの節に属すかが恣意的で either",
+      "Run:→Expected: は continue(hub 裁定 2026-09-19)"
+    ],
+    "stratum_note": "計画では [0.4,0.6) 帯の層化抽出を想定していたが、確率の実測が未実施のため層化は不可能。代わりに design.md の全候補32件と窓Wの全候補20件を悉皆でラベルしたので抽出バイアスはない。banded/random の分割は確率測定後に事後フィルタとして適用できる(全件が両集団の母集団)。",
+    "window_note": "計画の『60行・候補20ペア』は plan.md では成立しない(fence 除外が多く、フェンス整合する60行窓の候補数は最大14)。候補20ペアを優先して85行にした。窓単体の analyze_syntax が文書全体の除外集合と一致すること(フェンスが窓内で閉じること)を確認済み。",
+    "revision": "2026-09-19 rev2: Run:→Expected: の either 6件を continue へ(hub 裁定)"
+  },
+  "labels": [
+    {
+      "doc": "design",
+      "i": 0,
+      "j": 2,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H1 と直後のリード文"
+    },
+    {
+      "doc": "design",
+      "i": 2,
+      "j": 4,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "リード文(散文) → ステータス/日付(メタデータ)。役割が変わる"
+    },
+    {
+      "doc": "design",
+      "i": 5,
+      "j": 7,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "メタデータ → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 7,
+      "j": 9,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H2 → 直下の H3。間に本文がなく H2 は容器。話題は変わらない"
+    },
+    {
+      "doc": "design",
+      "i": 9,
+      "j": 11,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 14,
+      "j": 16,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "目的節の末尾 → 非目的節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 16,
+      "j": 18,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 20,
+      "j": 22,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "非目的節の末尾 → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 75,
+      "j": 77,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "パイプライン節の末尾 → 候補の列挙節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 77,
+      "j": 79,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 82,
+      "j": 84,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "候補の列挙節の末尾 → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 108,
+      "j": 110,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 112,
+      "j": 114,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "extends 節の末尾 → scope 節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 122,
+      "j": 124,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "scope 節の末尾 → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 124,
+      "j": 126,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H2 → 直下の H3。index 3 と同型"
+    },
+    {
+      "doc": "design",
+      "i": 153,
+      "j": 155,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "blog.yaml 固有の話 → 全カテゴリ共通の severity 運用。主題の粒度が変わる"
+    },
+    {
+      "doc": "design",
+      "i": 155,
+      "j": 157,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "節末の補足 → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 170,
+      "j": 172,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "設定ファイル探索の話 → entry point 登録の話。別主題の短い段落が連続"
+    },
+    {
+      "doc": "design",
+      "i": 172,
+      "j": 174,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "CLI 節の末尾 → 新セクション見出し"
+    },
+    {
+      "doc": "design",
+      "i": 174,
+      "j": 176,
+      "label": "continue",
+      "stratum": "full",
+      "note": "H2 → 直下の H3。index 3 と同型"
+    },
+    {
+      "doc": "design",
+      "i": 176,
+      "j": 178,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 178,
+      "j": 180,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "human 出力の説明 → json 出力の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 195,
+      "j": 197,
+      "label": "continue",
+      "stratum": "full",
+      "note": "リード行「違反レコードの結果種別契約:」とその箇条書き"
+    },
+    {
+      "doc": "design",
+      "i": 199,
+      "j": 201,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "結果種別契約リストの末尾 → skipped エントリという別主題の段落"
+    },
+    {
+      "doc": "design",
+      "i": 201,
+      "j": 203,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "skipped の説明 → 終了コード節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 203,
+      "j": 205,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 207,
+      "j": 209,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "終了コード節の末尾 → エラー処理節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 220,
+      "j": 222,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 224,
+      "j": 226,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "テスト方針節の末尾 → 拡張点節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 226,
+      "j": 228,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "design",
+      "i": 231,
+      "j": 233,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "拡張点節の末尾 → 未解決・検証課題節の見出し"
+    },
+    {
+      "doc": "design",
+      "i": 233,
+      "j": 235,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文"
+    },
+    {
+      "doc": "window",
+      "i": 0,
+      "j": 2,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "前 Task の補足説明 → 別手順 Step 4 の開始"
+    },
+    {
+      "doc": "window",
+      "i": 2,
+      "j": 4,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその実行内容"
+    },
+    {
+      "doc": "window",
+      "i": 4,
+      "j": 5,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "window",
+      "i": 12,
+      "j": 14,
+      "label": "either",
+      "stratum": "full",
+      "note": "thematic break は prose を持たず、前節末と次節頭のどちらに属すかは恣意的"
+    },
+    {
+      "doc": "window",
+      "i": 14,
+      "j": 16,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文。structure が「見出しが内容を具体的に指すか」を採点する以上、同一ブロックで評価されるべき"
+    },
+    {
+      "doc": "window",
+      "i": 16,
+      "j": 17,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Files:** とその中身"
+    },
+    {
+      "doc": "window",
+      "i": 19,
+      "j": 21,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Files セクション終了 → Interfaces セクション開始"
+    },
+    {
+      "doc": "window",
+      "i": 21,
+      "j": 22,
+      "label": "continue",
+      "stratum": "full",
+      "note": "ラベル行 **Interfaces:** とその中身"
+    },
+    {
+      "doc": "window",
+      "i": 22,
+      "j": 24,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Interfaces(仕様) → Steps(手順)へ役割が変わる"
+    },
+    {
+      "doc": "window",
+      "i": 56,
+      "j": 58,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその説明"
+    },
+    {
+      "doc": "window",
+      "i": 58,
+      "j": 60,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Step 2 の説明 → Step 3 の開始"
+    },
+    {
+      "doc": "window",
+      "i": 60,
+      "j": 62,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその説明"
+    },
+    {
+      "doc": "window",
+      "i": 62,
+      "j": 64,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Step 3 の説明 → Step 4 の開始"
+    },
+    {
+      "doc": "window",
+      "i": 64,
+      "j": 66,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその実行内容"
+    },
+    {
+      "doc": "window",
+      "i": 66,
+      "j": 67,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
+    },
+    {
+      "doc": "window",
+      "i": 74,
+      "j": 76,
+      "label": "either",
+      "stratum": "full",
+      "note": "thematic break。index 3 と同型"
+    },
+    {
+      "doc": "window",
+      "i": 76,
+      "j": 78,
+      "label": "continue",
+      "stratum": "full",
+      "note": "見出しと直後の本文(Task 12 とその最初の手順)"
+    },
+    {
+      "doc": "window",
+      "i": 78,
+      "j": 80,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその説明"
+    },
+    {
+      "doc": "window",
+      "i": 80,
+      "j": 82,
+      "label": "boundary",
+      "stratum": "full",
+      "note": "Step 1 の説明 → Step 2 の開始"
+    },
+    {
+      "doc": "window",
+      "i": 82,
+      "j": 84,
+      "label": "continue",
+      "stratum": "full",
+      "note": "Step 見出しとその説明"
+    }
+  ]
+}
