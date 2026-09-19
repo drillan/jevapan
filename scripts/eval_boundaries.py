@@ -94,9 +94,11 @@ ECHOICE2_DOCS = {
 }
 ECHOICE2_ALLOC = {"plan": 3, "design": 3, "readme": 2, "bad": 1}
 ECHOICE2_N_OPTIONS = 6
-# 対照(+3req): 4/9 以上の正解が出た場合のみ、無関係な一文を足した
-# 条件で3問を再送し選択が変わらないか確認する(水準シフト耐性)
-ECHOICE2_CONTROL_IX = (0, 3, 6)  # plan/design/readme を1問ずつ
+# 対照(+3req): 4/9 以上の正解が出た場合のみ、同じ群を無関係な一文
+# (PLACEHOLDER_NOTE)の有無だけ変えて問い直す対応のある比較。
+# 対象は本テストで confidence が高かった上位3群(確信のある選択が
+# 覆るか見る。確信の低い群では変化がノイズと区別できない)
+ECHOICE2_CONTROL_N = 3
 ECHOICE2_SIGNIFICANT = 4  # 4/9 以上 = p=0.048 で有意(事前登録)
 
 
@@ -752,6 +754,18 @@ async def exp_echoice2(
     )
     run["n_correct"] = n_correct
     if n_correct >= ECHOICE2_SIGNIFICANT:
+        # 対応のある比較: 同じ群を PLACEHOLDER_NOTE の有無だけ変えて
+        # 問い直す(別群は群違いと交絡するため不可)。対象は本テストで
+        # confidence が高かった上位3群、判定は本テストの選択キーとの一致
+        main_choice = {
+            spec["index"]: req["choices"][f"q{spec['index']}"]
+            for req, spec in zip(run["requests"], specs, strict=True)
+        }
+        top = sorted(
+            main_choice,
+            key=lambda ix: main_choice[ix]["confidence"],
+            reverse=True,
+        )[: ECHOICE2_CONTROL_N]
         ctrl: dict[str, Any] = {
             "experiment": "E-CHOICE2",
             "rep": 0,
@@ -760,19 +774,20 @@ async def exp_echoice2(
             "polarity": 1,
             "params": {
                 "note": PLACEHOLDER_NOTE,
-                "question_indices": list(ECHOICE2_CONTROL_IX),
+                "question_indices": top,
+                "main_confidences": {
+                    ix: main_choice[ix]["confidence"] for ix in top
+                },
             },
             "requests": [],
         }
-        for ix in ECHOICE2_CONTROL_IX:
-            spec = specs[ix]
-            await ask(ctrl, spec, ECHOICE2_INSTRUCTIONS + " " + PLACEHOLDER_NOTE)
+        for ix in top:
+            await ask(ctrl, specs[ix], ECHOICE2_INSTRUCTIONS + " " + PLACEHOLDER_NOTE)
         ctrl["unchanged"] = all(
-            c["choices"][f"q{s['index']}"]["choice"] == s["correct_key"]
+            c["choices"][f"q{s['index']}"]["choice"]
+            == main_choice[s["index"]]["choice"]
             for c, s in zip(
-                ctrl["requests"],
-                (specs[ix] for ix in ECHOICE2_CONTROL_IX),
-                strict=True,
+                ctrl["requests"], (specs[ix] for ix in top), strict=True
             )
         )
         runs.append(_finish_run(ctrl))
@@ -947,7 +962,7 @@ def plan(args: argparse.Namespace) -> dict[str, int]:
             )
     if "choice2" in args.stages:
         # 9問(1問1req)。4/9 以上なら対照3reqが追加される(最大12)
-        counts["E-CHOICE2"] = sum(ECHOICE2_ALLOC.values()) + len(ECHOICE2_CONTROL_IX)
+        counts["E-CHOICE2"] = sum(ECHOICE2_ALLOC.values()) + ECHOICE2_CONTROL_N
     counts["total"] = sum(v for v in counts.values() if v > 0)
     return counts
 
