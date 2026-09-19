@@ -7,7 +7,7 @@
 ```bash
 uv tool install .
 # またはリポジトリから
-uv tool install git+https://github.com/<owner>/jevapan
+uv tool install git+https://github.com/drillan/jevapan
 ```
 
 `jevapan` と短縮形 `jvp` の2コマンドが登録される。
