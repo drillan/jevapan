@@ -66,16 +66,24 @@ def test_nested_marker_below_content_column_is_candidate() -> None:
 
 def test_dedent_reapplies_sibling_rule() -> None:
     """dedent の pop 後、新しい最内項目に対して nest/兄弟規則を再適用する。
-    ` - b`(インデント1)は `- a` の同レベル同種兄弟として抑制される。"""
+    ` - b`(インデント1)は `- a` の同レベル同種兄弟として抑制される。
+    兄弟の置き換えでもリストのアンカー(最小インデント)は動かず、
+    `- c` も同一リストの兄弟(CommonMark 参照実装で3項目の単一リスト)。"""
     lines = ["- a", " - b", "- c"]
-    # 0→1 は兄弟で抑制。1→2 は ` - b` が ` - a` を置き換えたため新規扱い
-    assert find_boundary_candidates(lines) == [(1, 2)]
+    assert find_boundary_candidates(lines) == []
 
 
 def test_dedent_reapplies_sibling_rule_ordered() -> None:
     """ordered でも同様に dedent 後の兄弟規則が効く(番号差は同種扱い)。"""
     lines = ["1. a", "  2. b", "3. c"]
-    assert find_boundary_candidates(lines) == [(1, 2)]
+    assert find_boundary_candidates(lines) == []
+
+
+def test_sibling_anchor_does_not_creep() -> None:
+    """深い兄弟が続いてもリストのアンカー(最小インデント)は保持され、
+    段階的に深くなる兄弟列と浅い兄弟をすべて同一リストとして抑制する。"""
+    lines = ["- a", " - b", "  - c", "- d"]
+    assert find_boundary_candidates(lines) == []
 
 
 def test_dedent_renests_into_ancestor_item() -> None:

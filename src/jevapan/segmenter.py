@@ -127,9 +127,13 @@ def find_boundary_candidates(
                     cands.append((prev, i))
                 stack.append((kind, ind, content_col))
             elif stack and ind >= stack[-1][1]:
-                # 同レベル兄弟: 同種マーカなら抑制して項目を置き換える
+                # 同レベル兄弟: 同種マーカなら抑制して項目を置き換える。
+                # marker_indent はリストのアンカー(最小インデント)を保持し、
+                # content 列のみ新項目の値で更新する(深い兄弟でアンカーが
+                # creep しない。CommonMark ではインデント差のある兄弟も
+                # 同一リストの項目)
                 same = stack[-1][0] == kind
-                stack[-1] = (kind, ind, content_col)
+                stack[-1] = (kind, min(stack[-1][1], ind), content_col)
                 if prev is not None and not (tight and same):
                     cands.append((prev, i))
             else:
