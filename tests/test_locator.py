@@ -64,22 +64,42 @@ async def test_locate_in_block_masks_excluded_lines_in_state() -> None:
 
 
 async def test_locate_questions_explain_excluded_placeholder() -> None:
-    """locate の質問にも [excluded] がコードブロック・表・front matter の
-    置換目印で評価対象の文章ではない旨を含める(state の masked 入力と
-    一致させる。block/document 両経路)。"""
+    """locate の質問に [excluded] 説明を付すのは、state の masked 入力に
+    実際にプレースホルダが含まれるときだけ(block/document 両経路)。
+    除外領域なしの文書では無関係な説明文で水準シフトしない(issue #16)。"""
     eng = Engine(client=AsyncMock(), sem=None)
     cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
-        return_value=NoulResult(probs={"s0": 0.1})
+        return_value=NoulResult(probs={"s0": 0.1, "s1": 0.1})
     )
+
+    # 除外領域なし → 説明は付かない
     block = Block(1, 1, "対象文。")
     await locate_in_block(eng, block, cat, ["対象文。"])
     q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
-    assert "[excluded]" in q and "評価対象の文章ではない" in q
+    assert "[excluded]" not in q
 
     eng.noul_batch.reset_mock()
     eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1})
     await locate_in_document(eng, "対象文。", cat, ["対象文。"])
+    q = eng.noul_batch.call_args.args[1]["s0"]
+    assert "[excluded]" not in q
+
+    # 除外領域をまたぐ入力 → masked state に placeholder があり説明が付く
+    eng.noul_batch.reset_mock()
+    eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1, "s1": 0.1})
+    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
+    excluded = {1, 2, 3}
+    block = Block(1, 5, "\n".join(doc_lines))
+    await locate_in_block(eng, block, cat, doc_lines, excluded)
+    q = eng.noul_batch.call_args.kwargs["questions"]["s0"]
+    assert "[excluded]" in q and "評価対象の文章ではない" in q
+
+    eng.noul_batch.reset_mock()
+    eng.noul_batch.return_value = NoulResult(probs={"s0": 0.1, "s1": 0.1})
+    await locate_in_document(
+        eng, "前文。\n[excluded]\n対象文。", cat, doc_lines, excluded
+    )
     q = eng.noul_batch.call_args.args[1]["s0"]
     assert "[excluded]" in q and "評価対象の文章ではない" in q
 
