@@ -56,6 +56,17 @@ def test_continuations_empty_for_paragraph_after_excluded() -> None:
     assert cands == [] and cont == set()
 
 
+def test_continuations_empty_for_loose_pair_across_excluded() -> None:
+    """除外領域の前の空行を無視しない: 空行を挟んだ loose な項目
+    ペアは継続と構文一意に決まらず continuations に記録しない
+    (loose 項目ペアは Jev の意味判定に委ねる原則と同じ分離)。"""
+    lines = ["- a", "", "  ```", "code", "  ```", "- b"]
+    excluded = analyze_syntax(lines)
+    cont: set[tuple[int, int]] = set()
+    cands = find_boundary_candidates(lines, excluded, continuations=cont)
+    assert cands == [] and cont == set()
+
+
 def test_candidates_skip_same_list_item_pairs() -> None:
     """同種リストマーカの連続は同一リストの継続で境界候補にしない
     (構文判断はコードの責務)。リスト→非リストの遷移は候補に残す。"""
@@ -255,6 +266,20 @@ async def test_segment_splits_list_at_table_row() -> None:
     excluded = analyze_syntax(text.splitlines())
     blocks = await segment(eng, text, excluded)
     assert [(b.start, b.end) for b in blocks] == [(1, 1), (3, 3)]
+
+
+async def test_segment_splits_loose_list_across_excluded() -> None:
+    """除外領域の前後どちら側の空行でも loose 判定に割れない:
+    loose な項目ペアは継続と一意に決まらずブロックを分割する。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={}))  # type: ignore[method-assign]
+    for text in (
+        "- a\n\n  ```\ncode\n  ```\n- b",
+        "- a\n  ```\ncode\n  ```\n\n- b",
+    ):
+        excluded = analyze_syntax(text.splitlines())
+        blocks = await segment(eng, text, excluded)
+        assert [(b.start, b.end) for b in blocks] == [(1, 1), (6, 6)]
 
 
 async def test_segment_splits_paragraph_after_item_fence() -> None:

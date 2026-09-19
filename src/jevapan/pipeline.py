@@ -141,7 +141,7 @@ async def _lint_text(
         if cs.score >= cat.threshold:
             continue
         if cat.locate:
-            tasks.append(locate_in_document(engine, text, cat, lines, excluded))
+            tasks.append(locate_in_document(engine, masked, cat, lines, excluded))
             task_cats.append(name)
         else:
             violations.append(

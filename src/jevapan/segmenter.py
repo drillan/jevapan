@@ -101,14 +101,17 @@ def find_boundary_candidates(
             # 除外領域の先頭行の indent が最内項目の content 列未満なら
             # 項目を閉じる(トップレベルの fence・表行はリストを閉じる)。
             # run 内部の行(fence の内容行等)は opaque なコンテンツであり
-            # その indent は項目判定に使わない
+            # その indent は項目判定に使わない。これは本ツールの選択で
+            # あり CommonMark の規則ではない(CommonMark では fence 内の
+            # dedent 行は項目を閉じない)
             if ln.strip() and not in_excluded_run:
                 ind = _indent(ln)
                 while stack and ind < stack[-1][2]:
                     stack.pop()
             in_excluded_run = True
             gap = True
-            blank_between = False
+            # blank_between は保持する: 除外領域の前の空行も
+            # ペア間の空行であり、loose 判定に反映させる
             continue
         in_excluded_run = False
         if not ln.strip():

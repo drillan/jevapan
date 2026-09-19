@@ -174,3 +174,22 @@ async def test_document_score_instructions_include_authorship_scope() -> None:
     await score_document(eng, "doc", [_cat("consistency", scope="document")])
     instr = eng.score_batch.call_args.kwargs["questions"]["consistency"][0]
     assert "著者自身の記述" in instr
+
+
+async def test_score_instructions_explain_excluded_placeholder() -> None:
+    """採点基準に [excluded] がコードブロック・表・front matter の
+    置換目印で評価対象の文章ではない旨を含める
+    (block/document 両経路の masked 入力と一致させる)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"structure": ScoreResult(1.5, 0.9)}
+    )
+    blocks = [Block(1, 1, "対象文。")]
+    await score_blocks(eng, blocks, [_cat("structure")])
+    instr = eng.score_batch.call_args.kwargs["questions"]["structure"][0]
+    assert "[excluded]" in instr and "評価対象の文章ではない" in instr
+
+    eng.score_batch.reset_mock()
+    await score_document(eng, "doc", [_cat("structure", scope="document")])
+    instr = eng.score_batch.call_args.kwargs["questions"]["structure"][0]
+    assert "[excluded]" in instr and "評価対象の文章ではない" in instr
