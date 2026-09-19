@@ -25,10 +25,76 @@ def test_candidates_skip_same_list_item_pairs() -> None:
     assert find_boundary_candidates(lines) == [(2, 3), (3, 4)]
 
 
-def test_candidates_skip_loose_list_continuation() -> None:
-    """空行を挟んでも同種マーカなら同一リスト(loose list)。"""
+def test_candidates_keep_loose_list_pairs() -> None:
+    """空行を挟んだ同種マーカペアは loose list として候補に残す。
+    構文抑制は tight 連続のみで、意味判定は Jev に委ねる。"""
     lines = ["- a", "", "- b", "", "para"]
-    assert find_boundary_candidates(lines) == [(2, 4)]
+    assert find_boundary_candidates(lines) == [(0, 2), (2, 4)]
+
+
+def test_candidates_skip_list_item_continuation_lines() -> None:
+    """リスト項目の content 列以上にインデントされた非マーカ行は
+    同一項目の継続(lazy continuation)としてペアを抑制する。"""
+    lines = ["- 項目A", "  続きの行", "- 項目B", "text"]
+    # 0→1 は継続行で抑制。1→2(非マーカ→マーカ),2→3(マーカ→prose)は候補
+    assert find_boundary_candidates(lines) == [(1, 2), (2, 3)]
+
+
+def test_candidates_keep_underindented_continuation() -> None:
+    """content 列未満の非マーカ行は継続とみなさず候補に残す
+    (見出し等は従来通り境界候補)。"""
+    assert find_boundary_candidates(["- 項目A", "続きの行"]) == [(0, 1)]
+    assert find_boundary_candidates(["- 項目A", "# 見出し"]) == [(0, 1)]
+
+
+def test_ordered_item_continuation_uses_marker_width() -> None:
+    """ordered 項目の content 列はマーカ位置+マーカ長+空白1。
+    `1. ` は content 列3、`12. ` は4。"""
+    assert find_boundary_candidates(["1. item", "   続き"]) == []
+    assert find_boundary_candidates(["1. item", "  続き"]) == [(0, 1)]
+    assert find_boundary_candidates(["12. item", "    続き"]) == []
+
+
+def test_candidates_skip_nested_list_items() -> None:
+    """任意の空白インデントのネスト項目も同一リスト木の継続として抑制。
+    4文字以上のインデント項目は CommonMark では indented code の可能性が
+    あるが、mask.py が indented code を検出しないため項目扱いで割り切る。"""
+    lines = ["- a", "  - b", "    - c", "- d"]
+    assert find_boundary_candidates(lines) == []
+
+
+def test_thematic_break_is_not_list_marker() -> None:
+    """thematic break はリスト項目より優先。`- - -` や `---` が
+    項目継続に飲み込まれず、前後のペアは候補に残る。"""
+    for tb in ("- - -", "---", "* * *", "___"):
+        lines = ["- a", tb, "- b"]
+        assert find_boundary_candidates(lines) == [(0, 1), (1, 2)]
+
+
+def test_candidates_keep_loose_continuation_line() -> None:
+    """空行を挟んだ継続行は loose な継続として候補に残す
+    (tight 連続のみ構文抑制する L7 の分離に倣う)。"""
+    lines = ["- a", "", "  cont"]
+    assert find_boundary_candidates(lines) == [(0, 2)]
+
+
+def test_marker_edge_cases() -> None:
+    """例外的入力の挙動を固定。行末のみの `-` は空項目としてマーカ、
+    タブは空白とみなさない(先頭タブ・マーカ直後タブともに非項目)。"""
+    # `-` 単体は空の bullet 項目。content 列2以上の継続行は抑制
+    assert find_boundary_candidates(["-", "  x"]) == []
+    # 先頭タブは項目にしない
+    assert find_boundary_candidates(["- a", "\t- b"]) == [(0, 1)]
+    # マーカ直後がタブでも項目にしない
+    assert find_boundary_candidates(["- a", "-\tb"]) == [(0, 1)]
+
+
+def test_topic_change_inside_list_is_not_structurally_detected() -> None:
+    """受容トレードオフ: 同種マーカ連続の途中にある話題転換は
+    構文的に検出しない(質問自体が送られない)。構文で確実に
+    同一ブロックと分かるものだけを抑制する設計の帰結として固定。"""
+    lines = ["- りんごについて", "- 全く別の話題", "- また別件"]
+    assert find_boundary_candidates(lines) == []
 
 
 def test_candidates_keep_different_marker_transition() -> None:

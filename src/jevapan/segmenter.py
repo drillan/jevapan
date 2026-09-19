@@ -7,21 +7,37 @@ from typing import Any
 from jevapan.engine import Engine, NoulResult
 from jevapan.models import Block
 
-_BULLET_RE = re.compile(r"^\s{0,3}([-+*])(?:\s|$)")
-_ORDERED_RE = re.compile(r"^\s{0,3}\d{1,9}([.)])(?:\s|$)")
+_BULLET_RE = re.compile(r"^ *([-+*])(?: |$)")
+_ORDERED_RE = re.compile(r"^ *\d{1,9}([.)])(?: |$)")
+_THEMATIC_RE = re.compile(r"^ {0,3}([-*_])( *\1){2,} *$")
 
 
-def _list_marker(line: str) -> str | None:
-    """Markdown リスト項目のマーカ種別を返す(非リスト行は None)。
+def _list_item(line: str) -> tuple[str, int] | None:
+    """Markdown リスト項目の (マーカ種別, content 列) を返す
+    (非リスト行は None)。content 列 = マーカ終端 + 空白1 で、
+    lazy continuation 判定に使う。
+
     同種マーカの連続は同一リストの項目継続とみなす。CommonMark と同じく
-    異なる bullet 文字・異なる ordered 区切りは別リストとみなす。"""
+    異なる bullet 文字・異なる ordered 区切りは別リストとみなす。
+    空白は半角スペースのみ(mask.py の _FENCE_RE と揃える)。任意の
+    空白インデントのネスト項目を認める。4文字以上のインデント項目は
+    CommonMark では indented code の可能性があるが、mask.py が
+    indented code を検出しないため項目扱いで割り切る。thematic break
+    は項目より優先して非リストとする。"""
+    if _THEMATIC_RE.match(line):
+        return None
     m = _BULLET_RE.match(line)
     if m:
-        return m.group(1)
+        return m.group(1), m.end(1) + 1
     m = _ORDERED_RE.match(line)
     if m:
-        return "ordered" + m.group(1)
+        return "ordered" + m.group(1), m.end(1) + 1
     return None
+
+
+def _indent(line: str) -> int:
+    """先頭の半角スペース数(タブはインデントとみなさない)。"""
+    return len(line) - len(line.lstrip(" "))
 
 
 def _boundary_question(i: int, j: int) -> str:
@@ -54,21 +70,44 @@ def find_boundary_candidates(
 ) -> list[tuple[int, int]]:
     """各非空・非除外行 i と次の非空・非除外行 j のペア(0始まり)を返す。
     空行は飛ばしても連結を維持するが、除外行は連結を断つ。
-    同種リストマーカの連続(同一リストの項目継続)は構文的に同ブロックと
-    決まるため候補にしない(実測で退化1行ブロックの FP 温床だった)。"""
+    同一リスト木の継続(同種マーカの tight 連続・項目の content 列以上に
+    インデントされた非マーカ継続行)は構文的に同ブロックと決まるため
+    候補にしない(実測で退化1行ブロックの FP 温床だった)。空行を挟む
+    loose 連続は抑制せず Jev の意味判定に委ねる。"""
     cands: list[tuple[int, int]] = []
     prev: int | None = None
+    blank_between = False
     for i, ln in enumerate(lines):
         if i in excluded:
             prev = None
+            blank_between = False
             continue
         if not ln.strip():
+            blank_between = True
             continue
         if prev is not None:
-            m = _list_marker(lines[prev])
-            if m is None or m != _list_marker(ln):
+            pitem = _list_item(lines[prev])
+            citem = _list_item(ln)
+            # 構文抑制は tight 連続のみ(空行を挟む loose 連続は候補に残し
+            # Jev が意味判定する)。同一リスト木の継続: 同種マーカ連続、
+            # または content 列以上にインデントされた非マーカ継続行
+            tight = not blank_between
+            same_list = (
+                pitem is not None
+                and citem is not None
+                and tight
+                and citem[0] == pitem[0]
+            )
+            lazy = (
+                pitem is not None
+                and citem is None
+                and tight
+                and _indent(ln) >= pitem[1]
+            )
+            if not same_list and not lazy:
                 cands.append((prev, i))
         prev = i
+        blank_between = False
     return cands
 
 
