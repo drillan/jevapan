@@ -106,10 +106,12 @@
       "either: 原理的に一意に決まらない、または同等に妥当な二解釈がある",
       "見出し→直後の本文は continue。structure カテゴリが『見出しが内容を具体的に指すか』を採点するため、見出しと本文は同一ブロックで評価される必要がある",
       "H2→直下のH3(間に本文なし)は continue。上位見出しは容器にすぎず話題は変わらない",
-      "thematic break(---)は prose を持たないため前後どちらの節に属すかが恣意的で either"
+      "thematic break(---)は prose を持たないため前後どちらの節に属すかが恣意的で either",
+      "Run:→Expected: は continue(hub 裁定 2026-09-19)"
     ],
     "stratum_note": "計画では [0.4,0.6) 帯の層化抽出を想定していたが、確率の実測が未実施のため層化は不可能。代わりに design.md の全候補32件と窓Wの全候補20件を悉皆でラベルしたので抽出バイアスはない。banded/random の分割は確率測定後に事後フィルタとして適用できる(全件が両集団の母集団)。",
-    "window_note": "計画の『60行・候補20ペア』は plan.md では成立しない(fence 除外が多く、フェンス整合する60行窓の候補数は最大14)。候補20ペアを優先して85行にした。窓単体の analyze_syntax が文書全体の除外集合と一致すること(フェンスが窓内で閉じること)を確認済み。"
+    "window_note": "計画の『60行・候補20ペア』は plan.md では成立しない(fence 除外が多く、フェンス整合する60行窓の候補数は最大14)。候補20ペアを優先して85行にした。窓単体の analyze_syntax が文書全体の除外集合と一致すること(フェンスが窓内で閉じること)を確認済み。",
+    "revision": "2026-09-19 rev2: Run:→Expected: の either 6件を continue へ(hub 裁定)"
   },
   "labels": [
     {
@@ -388,9 +390,9 @@
       "doc": "window",
       "i": 4,
       "j": 5,
-      "label": "either",
+      "label": "continue",
       "stratum": "full",
-      "note": "Run と Expected は同一手順だが役割は変わる。質問文の 'change of role' に照らすと両解釈が立つ"
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
     },
     {
       "doc": "window",
@@ -484,9 +486,9 @@
       "doc": "window",
       "i": 66,
       "j": 67,
-      "label": "either",
+      "label": "continue",
       "stratum": "full",
-      "note": "Run と Expected。index 2 と同型"
+      "note": "Run: とその Expected: は同一手順の検証単位。Expected: 単独ブロックは採点不能な縮退ブロックを生むため continue(hub 裁定 2026-09-19。見出し規則と同じ『構造的マーカーは内容に結合』の一貫規則)"
     },
     {
       "doc": "window",
