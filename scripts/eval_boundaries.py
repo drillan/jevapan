@@ -672,9 +672,7 @@ def _choice2_questions(
                         o["key"] for o in options if o["label"] == "boundary"
                     ),
                     "seed": seed + qi,
-                    "reused_continues": sorted(
-                        c for c in take if c in used
-                    ),
+                    "reused_continues": sorted(c for c in take if c in used),
                     "truncated_options": len(opts) < n_options,
                 }
             )
@@ -712,9 +710,7 @@ async def exp_echoice2(
         s1 = min(len(lines), max(ends) + WINDOW_MARGIN_LINES + 1)
         return {"lines": lines[s0:s1]}, s0, s1
 
-    async def ask(
-        run: dict[str, Any], spec: dict[str, Any], instructions: str
-    ) -> None:
+    async def ask(run: dict[str, Any], spec: dict[str, Any], instructions: str) -> None:
         state, s0, s1 = state_for(spec)
         criteria = {
             o["key"]: f"lines[{o['pair'][0] - s0}] と lines[{o['pair'][1] - s0}] の間"
@@ -765,7 +761,7 @@ async def exp_echoice2(
             main_choice,
             key=lambda ix: main_choice[ix]["confidence"],
             reverse=True,
-        )[: ECHOICE2_CONTROL_N]
+        )[:ECHOICE2_CONTROL_N]
         ctrl: dict[str, Any] = {
             "experiment": "E-CHOICE2",
             "rep": 0,
@@ -775,9 +771,7 @@ async def exp_echoice2(
             "params": {
                 "note": PLACEHOLDER_NOTE,
                 "question_indices": top,
-                "main_confidences": {
-                    ix: main_choice[ix]["confidence"] for ix in top
-                },
+                "main_confidences": {ix: main_choice[ix]["confidence"] for ix in top},
             },
             "requests": [],
         }
@@ -786,9 +780,7 @@ async def exp_echoice2(
         ctrl["unchanged"] = all(
             c["choices"][f"q{s['index']}"]["choice"]
             == main_choice[s["index"]]["choice"]
-            for c, s in zip(
-                ctrl["requests"], (specs[ix] for ix in top), strict=True
-            )
+            for c, s in zip(ctrl["requests"], (specs[ix] for ix in top), strict=True)
         )
         runs.append(_finish_run(ctrl))
     return runs
