@@ -146,13 +146,15 @@ def _run_check(path: str) -> dict[str, Any]:
     assert len(files) == 1
     f: dict[str, Any] = files[0]
     assert f["file"] == path
-    _assert_result_contract(f, Path(path).read_text().splitlines())
-    # 揺れの実測値を残す(失敗時は captured stderr に出る)
+    # 揺れの実測値を残す。構造契約の違反時こそ参照したいので検証より先に
+    # 出し、キー欠落でも落ちないよう get 経由にする
+    summary, usage = f.get("summary", {}), f.get("usage", {})
     print(
-        f"observed: {path}: blocks={f['summary']['blocks']} "
-        f"violations={f['summary']['violations']} calls={f['usage']['calls']}",
+        f"observed: {path}: blocks={summary.get('blocks')} "
+        f"violations={summary.get('violations')} calls={usage.get('calls')}",
         file=sys.stderr,
     )
+    _assert_result_contract(f, Path(path).read_text().splitlines())
     return f
 
 
@@ -176,5 +178,7 @@ def test_good_doc_mostly_clean(checked: dict[str, dict[str, Any]]) -> None:
 
 
 def test_good_doc_is_cleaner_than_bad(checked: dict[str, dict[str, Any]]) -> None:
-    # 同一実行ペアの相対契約。両者が同時に悪化するドリフト型の回帰を拾う
+    # 現在の定数(good<=2, bad>=5)では論理含意されるが、絶対値の範囲が
+    # 将来重なったときに効く保険。同一実行ペアの相対比較で、両者が
+    # 同時に悪化するドリフト型の回帰を拾う
     assert len(checked[GOOD]["violations"]) < len(checked[BAD]["violations"])

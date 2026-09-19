@@ -1,4 +1,5 @@
 import pytest
+from test_integration import BLOCK_CATEGORIES, DOC_CATEGORIES
 
 from jevapan.ruleset import Scope, load_ruleset, resolve_preset
 
@@ -24,18 +25,11 @@ def test_tech_doc_extends_base() -> None:
 
 
 def test_base_scope_partition_matches_integration_contract() -> None:
-    """test_integration.py の BLOCK_CATEGORIES / DOC_CATEGORIES 固定値の
+    """test_integration.py の BLOCK_CATEGORIES / DOC_CATEGORIES の
     ミラー。base preset の scope 形状が変わったら統合側も更新する。"""
     rs = load_ruleset(resolve_preset("base"))
     enabled = [c for c in rs.categories if c.enabled]
     block = {c.name for c in enabled if c.scope in (Scope.block, Scope.both)}
     doc = {c.name for c in enabled if c.scope in (Scope.document, Scope.both)}
-    assert block == {
-        "structure",
-        "clarity",
-        "concision",
-        "voice",
-        "naturalness",
-        "substance",
-    }
-    assert doc == {"concision", "consistency"}
+    assert block == BLOCK_CATEGORIES
+    assert doc == DOC_CATEGORIES
