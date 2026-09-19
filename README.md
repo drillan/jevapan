@@ -107,7 +107,7 @@ uv run ruff check --fix . && uv run ruff format . && uv run mypy .
 ## 検証課題
 
 - 境界判定の精度とコスト: 行数に比例する質問数。長い文書での上限は要検証
-- **anglicism の locate 信頼性**: 初回実測(2026-09-19, jev-1.13.0)で違反文の採用確率が P=0.65 と閾値(既定0.6)の近傍。1回の観測では閾値を変えず、要再測定
+- **anglicism の locate 信頼性**: 実測(2026-09-19, jev-1.13.0)で違反文「この design は review で decide された。」の採用確率は P=0.76。初稿では locate の除外列挙に「定着した外来語」が含まれており、狙いの語(design/review)がそれに該当し得たため P=0.65 と閾値(既定0.6)の近傍だった。除外列挙から当該項目を外して 0.76 に改善。既定閾値 0.6 は維持
 - **初回実測(2026-09-18, samples/bad.md)**: 境界候補は「各非空行と次の非空行」のペア(空行は飛ばす)。空行区切りの段落も質問対象になり、prob >= BOUNDARY_THRESHOLD で切断される。切断点は次の非空行の直前で、空行はどちらのブロック行範囲にも含めない
 - `scope: both` のカテゴリ(concision)は同じ文が block/document 両スコープの locate で flag されることがある。同一 (行範囲, オフセット, text, category) は pipeline で1件に集約し、scope は実際の出現集合から求める({block,document}→'both')。probability は大きい方を採用する
 - 見出し行(`# まとめ` 等)も文候補として locate の対象になる。structure.locate が見出しを対象とするため候補に残す方針(設計メモ)
