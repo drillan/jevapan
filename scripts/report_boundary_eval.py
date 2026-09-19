@@ -100,6 +100,13 @@ def _band_mass(ps: list[float]) -> float | None:
     return inside / len(ps)
 
 
+def _band_mass_legacy(ps: list[float]) -> float | None:
+    """旧定義 [0.4,0.6) の質量。対称定義との差が結果を動かすかの確認用。"""
+    if not ps:
+        return None
+    return sum(1 for p in ps if 0.4 <= p < 0.6) / len(ps)
+
+
 def _summary(xs: list[float]) -> dict[str, float | int | None]:
     return {
         "n": len(xs),
@@ -257,6 +264,7 @@ def _aggregate_group(
         "n_confirmed_pairs": len(conf_keys),
         "n_contested_pairs": len(contested),
         "band_mass": _band_mass(all_obs),
+        "band_mass_legacy": _band_mass_legacy(all_obs),
         "band_mass_pair_mean": _band_mass(list(pair_mean.values())),
         "rep_sd": _summary(sds),
         "split_either": _split(either_keys),
@@ -294,6 +302,12 @@ def build_report(files: list[str], data: dict[str, Any]) -> dict[str, Any]:
         "band_mass": ee_all["band_mass"],
         "rep_sd": ee_all["rep_sd"],
     }
+    # doc 別分割(design 32 件は either 0、素の順序性能を単独で見る)
+    for doc_label in ("design", "window"):
+        sub = {k: v for k, v in ee_series.items() if k[0] == doc_label}
+        out["experiments"]["E-E"][f"{doc_label}_only"] = _aggregate_group(
+            sub, label_map, labeled_only=True
+        )
 
     # E-C: 変種ごと(窓ラベル=全ペアがラベル付き)
     out["experiments"]["E-C"] = {}
@@ -350,7 +364,8 @@ def print_report(rep: dict[str, Any]) -> None:
             )
             print(
                 f"  band_mass={_fmt(g['band_mass'])} "
-                f"(pair-mean {_fmt(g['band_mass_pair_mean'])})  "
+                f"(legacy {_fmt(g['band_mass_legacy'])}, "
+                f"pair-mean {_fmt(g['band_mass_pair_mean'])})  "
                 f"rep_sd mean={_fmt(g['rep_sd']['mean'])} "
                 f"median={_fmt(g['rep_sd']['median'])} "
                 f"max={_fmt(g['rep_sd']['max'])}"
@@ -370,13 +385,24 @@ def print_report(rep: dict[str, Any]) -> None:
             )
             fc = g["flip_curve"]
             print("  flip: " + " ".join(f"{t}:{_fmt(v, 2)}" for t, v in fc.items()))
-        if exp == "E-E" and "all_measured" in rep["experiments"]["E-E"]:
+        if exp == "E-E":
             am = rep["experiments"]["E-E"]["all_measured"]
             print(
                 f"  [all measured] pairs={am['n_pairs']} "
                 f"band={_fmt(am['band_mass'])} "
                 f"sd_mean={_fmt(am['rep_sd']['mean'])}"
             )
+            for doc_label in ("design", "window"):
+                sg = rep["experiments"]["E-E"][f"{doc_label}_only"]
+                print(
+                    f"  [{doc_label} only] pairs={sg['n_pairs']} "
+                    f"contested={sg['n_contested_pairs']} "
+                    f"band={_fmt(sg['band_mass'])} "
+                    f"auc={_fmt(sg['auc'])} "
+                    f"no_contested={_fmt(sg['auc_no_contested'])} "
+                    f"n={sg['auc_no_contested_n_pos_neg']} "
+                    f"brier={_fmt(sg['brier'])} ece={_fmt(sg['ece'])}"
+                )
 
 
 def main() -> int:
