@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult, ScoreResult
-from jevapan.mask import analyze_syntax, masked_text
+from jevapan.mask import analyze_syntax, masked_slice, masked_text
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
 from jevapan.segmenter import segment
@@ -81,6 +81,67 @@ def test_masked_text_replaces_runs_with_placeholder() -> None:
     assert "code" not in out
     assert out.count("[excluded]") == 1
     assert "本文。" in out and "次の文。" in out
+
+
+def test_analyze_syntax_records_kinds() -> None:
+    """analyze_syntax は除外行→種別("code block"/"table"/"front matter")
+    のマッピングを kinds 属性で保持する。集合としての振る舞いは不変。"""
+    lines = [
+        "---",
+        "title: x",
+        "---",
+        "本文。",
+        "| a | b |",
+        "```",
+        "code",
+        "```",
+        "次の文。",
+    ]
+    excluded = analyze_syntax(lines)
+    assert excluded == {0, 1, 2, 4, 5, 6, 7}
+    assert excluded.kinds == {
+        0: "front matter",
+        1: "front matter",
+        2: "front matter",
+        4: "table",
+        5: "code block",
+        6: "code block",
+        7: "code block",
+    }
+
+
+def test_masked_text_typed_placeholder() -> None:
+    """種別情報つきの除外集合では、プレースホルダが自己説明型の
+    `[excluded: <種別>]` になる(質問文への別途説明を不要にする)。"""
+    lines = ["本文。", "```", "code", "```", "| a |", "次の文。"]
+    out = masked_text(lines, analyze_syntax(lines))
+    assert "code" not in out.splitlines() and "| a |" not in out.splitlines()
+    assert "[excluded: code block]" in out
+    assert "[excluded: table]" in out
+    assert "本文。" in out and "次の文。" in out
+
+
+def test_masked_text_splits_runs_across_kinds() -> None:
+    """連続する除外領域が種別をまたぐ場合は、種別ごとに別々の
+    プレースホルダを出す。"""
+    lines = ["本文。", "| a |", "```", "code", "```"]
+    out = masked_text(lines, analyze_syntax(lines))
+    assert "[excluded: table]" in out and "[excluded: code block]" in out
+    assert out.count("[excluded") == 2
+
+
+def test_masked_text_front_matter_placeholder() -> None:
+    lines = ["---", "title: x", "---", "本文。"]
+    out = masked_text(lines, analyze_syntax(lines))
+    assert out.startswith("[excluded: front matter]\n")
+
+
+def test_masked_slice_propagates_kinds() -> None:
+    """masked_slice も種別情報を維持し、`[excluded: <種別>]` を生成する。"""
+    doc_lines = ["- 項目A", "  ```py", "  code()", "  ```", "- 項目B"]
+    out = masked_slice(doc_lines, 1, analyze_syntax(doc_lines))
+    assert "[excluded: code block]" in out
+    assert "code()" not in out
 
 
 async def test_segment_forces_cut_around_excluded_code() -> None:

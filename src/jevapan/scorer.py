@@ -5,7 +5,7 @@ from typing import Any
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
-from jevapan.mask import MASK_PLACEHOLDER, PLACEHOLDER_NOTE, masked_slice
+from jevapan.mask import masked_slice
 from jevapan.models import Block
 from jevapan.ruleset import Category, Scope
 
@@ -53,7 +53,13 @@ async def score_blocks(
     skipped: list[dict[str, Any]] | None = None,
 ) -> list[ScoredBlock]:
     targets = _block_cats(cats)
-    if not targets:
+    # 採点指示は全文書・全ブロックで完全に同一にする。プレースホルダは
+    # `[excluded: <種別>]` の自己説明型のため別途の説明文は要らない
+    # (指示が入力条件で変わる issue #16 型回帰の根絶。issue #19)
+    questions = {
+        c.name: (c.description + AUTHOR_SCOPE_CLAUSE, c.levels) for c in targets
+    }
+    if not questions:
         return [ScoredBlock(block=b) for b in blocks]
 
     async def one(b: Block) -> ScoredBlock:
@@ -63,12 +69,6 @@ async def score_blocks(
         # 除外領域を内包するブロックでは body の除外行をマスクする。
         # Block.text 自体は行番号忠実性のため生テキストを維持する
         body = masked_slice(b.text.splitlines(), b.start, excluded)
-        # 評価対象条件は常時付す。[excluded] 説明は body にプレースホルダが
-        # 混入するときだけ付す(無関係な指示による水準シフトを防ぐ。issue #16)
-        suffix = AUTHOR_SCOPE_CLAUSE + (
-            PLACEHOLDER_NOTE if MASK_PLACEHOLDER in body else ""
-        )
-        questions = {c.name: (c.description + suffix, c.levels) for c in targets}
         state = {"heading": heading, "context": context, "body": body}
         if payload_chars(state, questions) > SCORE_STATE_LIMIT:
             if skipped is not None:
@@ -99,13 +99,10 @@ async def score_document(
     engine: Engine, text: str, cats: list[Category]
 ) -> dict[str, CategoryScore]:
     targets = _doc_cats(cats)
-    # 評価対象条件は常時付す。text は呼出し側で masked 済みで、
-    # プレースホルダが混入するときだけ [excluded] 説明を付す(issue #16)
-    suffix = AUTHOR_SCOPE_CLAUSE + (
-        PLACEHOLDER_NOTE if MASK_PLACEHOLDER in text else ""
-    )
+    # block 採点と同様、指示は入力に関わらず完全に同一にする(issue #19)
     questions = {
-        c.name: (c.description + suffix, c.levels_document or c.levels) for c in targets
+        c.name: (c.description + AUTHOR_SCOPE_CLAUSE, c.levels_document or c.levels)
+        for c in targets
     }
     if not questions:
         return {}

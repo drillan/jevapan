@@ -38,7 +38,7 @@ from typesafe_sdk import Choice, Noul, NoulCriteria
 
 from jevapan.cli import _make_engine
 from jevapan.engine import Engine, NoulResult, _model_of, _usage_of
-from jevapan.mask import PLACEHOLDER_NOTE, analyze_syntax
+from jevapan.mask import analyze_syntax
 from jevapan.segmenter import (
     WINDOW_MARGIN_LINES,
     _boundary_question,
@@ -98,6 +98,13 @@ ECHOICE2_N_OPTIONS = 6
 # (PLACEHOLDER_NOTE)の有無だけ変えて問い直す対応のある比較。
 # 対象は本テストで confidence が高かった上位3群(確信のある選択が
 # 覆るか見る。確信の低い群では変化がノイズと区別できない)
+# NOTE: 製品側はプレースホルダを `[excluded: <種別>]` の自己説明型に
+# 変更し本定数を廃止(issue #19)。ここでは「無関係な一文」の対照材料
+# として旧文面をそのまま保持する
+PLACEHOLDER_NOTE = (
+    "[excluded] はコードブロック・表・front matter を"
+    "置き換えた目印であり評価対象の文章ではない。"
+)
 ECHOICE2_CONTROL_N = 3
 ECHOICE2_SIGNIFICANT = 4  # 4/9 以上 = p=0.048 で有意(事前登録)
 
