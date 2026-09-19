@@ -10,7 +10,7 @@ from pathlib import Path
 from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
 
 from jevapan.engine import Engine
-from jevapan.models import LintResult
+from jevapan.models import Limits, LintResult
 from jevapan.pipeline import lint_text
 from jevapan.report import exit_code, fail_under_exit_code, render_human, render_json
 from jevapan.ruleset import load_effective_ruleset
@@ -160,6 +160,17 @@ async def _run(args: argparse.Namespace) -> int:
     if args.concurrency < 1:
         print("jevapan: --concurrency must be >= 1", file=sys.stderr)
         return 2
+    limit_args = {
+        "score_state": ("--score-state-limit", args.score_state_limit),
+        "locate_state": ("--locate-state-limit", args.locate_state_limit),
+        "doc_state": ("--doc-state-limit", args.doc_state_limit),
+        "window_state": ("--window-state-limit", args.window_state_limit),
+    }
+    for flag, v in limit_args.values():
+        if v is not None and v < 1:
+            print(f"jevapan: {flag} must be >= 1", file=sys.stderr)
+            return 2
+    limits = Limits(**{k: v for k, (_, v) in limit_args.items() if v is not None})
     # cwd の .env を自動読込する(秘密値の先祖遡及はしない。issue #10)
     _load_dotenv(Path.cwd() / ".env")
     if not os.environ.get("TYPESAFE_API_KEY"):
@@ -185,7 +196,7 @@ async def _run(args: argparse.Namespace) -> int:
         return 2
     engine = _make_engine(args.concurrency)
     results = await asyncio.gather(
-        *[lint_text(engine, text, ruleset, label) for label, text in inputs]
+        *[lint_text(engine, text, ruleset, label, limits) for label, text in inputs]
     )
     _warn_skipped(results)
     if args.format == "json" or (args.format == "auto" and not sys.stdout.isatty()):
@@ -229,6 +240,30 @@ def main(argv: list[str] | None = None) -> int:
     chk.add_argument("--format", choices=["auto", "human", "json"], default="auto")
     chk.add_argument("--concurrency", type=int, default=20)
     chk.add_argument("--fail-under", type=float, default=None)
+    chk.add_argument(
+        "--score-state-limit",
+        type=int,
+        default=None,
+        help="block 採点ペイロードの文字数上限(既定 32000)",
+    )
+    chk.add_argument(
+        "--locate-state-limit",
+        type=int,
+        default=None,
+        help="locate ペイロードの文字数上限(既定 32000)",
+    )
+    chk.add_argument(
+        "--doc-state-limit",
+        type=int,
+        default=None,
+        help="document scope の文字数上限(既定 32000)",
+    )
+    chk.add_argument(
+        "--window-state-limit",
+        type=int,
+        default=None,
+        help="境界判定ウィンドウの文字数上限(既定 16000)",
+    )
     args = parser.parse_args(argv)
     if args.cmd != "check":
         parser.print_help(sys.stderr)

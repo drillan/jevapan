@@ -221,6 +221,7 @@ async def segment(
     text: str,
     excluded: AbstractSet[int] = frozenset(),
     skipped: list[dict[str, Any]] | None = None,
+    window_state: int = WINDOW_STATE_CHARS,
 ) -> list[Block]:
     lines = text.splitlines() or [""]
     prose = [i for i, ln in enumerate(lines) if ln.strip() and i not in excluded]
@@ -228,7 +229,7 @@ async def segment(
         return []
     continuations: set[tuple[int, int]] = set()
     candidates = find_boundary_candidates(lines, excluded, continuations)
-    windows, uninspected = build_windows(lines, candidates)
+    windows, uninspected = build_windows(lines, candidates, budget=window_state)
     if skipped is not None:
         skipped.extend(
             {

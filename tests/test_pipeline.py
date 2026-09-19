@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 from jevapan.engine import Engine, NoulResult, ScoreResult
+from jevapan.models import Limits
 from jevapan.pipeline import lint_text
 from jevapan.ruleset import parse_ruleset
 
@@ -287,3 +288,58 @@ async def test_no_prose_document_skips_document_scoring() -> None:
     assert res.blocks == []
     assert res.violations == []
     assert res.skipped == [{"category": "c", "reason": "no_evaluable_prose"}]
+
+
+async def test_doc_state_limit_override() -> None:
+    """Limits.doc_state で document scope の文字数上限を上書きできる(CLI 経由)。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"b0": 0.0}))  # type: ignore[method-assign]
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(1.9, 0.9)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "document",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                }
+            ]
+        },
+        "t",
+    )
+    text = "短い文書です。"
+    # 既定上限(32000)では skip しない
+    res = await lint_text(eng, text, rs, "t.md")
+    assert not any(s.get("reason") == "state_too_large" for s in res.skipped)
+    # doc_state=5 で同じ文書が上限超過になる
+    res = await lint_text(eng, text, rs, "t.md", limits=Limits(doc_state=5))
+    assert res.skipped and res.skipped[0]["reason"] == "state_too_large"
+
+
+async def test_score_state_limit_override() -> None:
+    """Limits.score_state で block 採点ペイロードの上限を上書きできる。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value=NoulResult(probs={"b0": 0.0})
+    )
+    eng.score_batch = AsyncMock(  # type: ignore[method-assign]
+        return_value={"c": ScoreResult(1.9, 0.9)}
+    )
+    rs = parse_ruleset(
+        {
+            "categories": [
+                {
+                    "name": "c",
+                    "scope": "block",
+                    "description": "d",
+                    "levels": ["a", "b"],
+                }
+            ]
+        },
+        "t",
+    )
+    res = await lint_text(eng, "本文です。", rs, "t.md", limits=Limits(score_state=1))
+    assert any(s.get("reason") == "score_state_too_large" for s in res.skipped)

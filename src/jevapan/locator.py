@@ -55,6 +55,7 @@ async def locate_in_block(
     category: Category,
     doc_lines: list[str],
     excluded: AbstractSet[int] = frozenset(),
+    state_limit: int = LOCATE_STATE_LIMIT,
 ) -> list[Violation]:
     if not category.locate:
         return []
@@ -71,14 +72,14 @@ async def locate_in_block(
         "candidates": [t for _, _, t in cands],
     }
     # 質問文は入力に関わらず完全に同一にする。プレースホルダは
-    # `[excluded: <種別>]` の自己説明型(issue #19)
+    # `[除外: <種別>]` の自己説明型(issue #19)
     questions = {
         f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
         for i in range(len(cands))
     }
-    if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
+    if payload_chars(state, questions) > state_limit:
         raise StateTooLargeError(
-            f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
+            f"locate state exceeds {state_limit} chars for {category.name}"
         )
     token = LOCATE_META.set((category.name, "block", cands))
     try:
@@ -107,6 +108,7 @@ async def locate_in_document(
     category: Category,
     all_lines: list[str],
     excluded: AbstractSet[int] = frozenset(),
+    state_limit: int = LOCATE_STATE_LIMIT,
 ) -> list[Violation]:
     if not category.locate:
         return []
@@ -124,9 +126,9 @@ async def locate_in_document(
         f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
         for i in range(len(cands))
     }
-    if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
+    if payload_chars(state, questions) > state_limit:
         raise StateTooLargeError(
-            f"locate state exceeds {LOCATE_STATE_LIMIT} chars for {category.name}"
+            f"locate state exceeds {state_limit} chars for {category.name}"
         )
     token = LOCATE_META.set((category.name, "document", cands))
     try:
