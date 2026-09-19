@@ -51,8 +51,14 @@ DEFAULT_DATA = "scripts/boundary_eval_data.json"
 R_EE = 5
 R_EC = 3
 R_EA = 3
+R_EB = 3
 EC_PAIRS = 20
 EA_QS = (1, 5, 20)
+# E-B: state 縮小実験。対象窓はペア span が EB_SPAN に一致する窓
+# (plan.md の build_windows 出力、state 16,855字・30ペアで定数化が観測
+# された窓)。水準は state JSON サイズ(文字数)の上限。
+EB_SPAN = (1250, 1736)
+EB_LEVELS = (16855, 8000, 4000, 2000)
 
 
 def _q_confidence(i: int, j: int) -> str:
@@ -279,6 +285,108 @@ async def exp_ea(
     return runs
 
 
+def _state_chars(state_lines: list[str]) -> int:
+    """state の JSON シリアライズ文字数(サイズ水準の計測単位)。"""
+    return len(json.dumps({"lines": state_lines}, ensure_ascii=False))
+
+
+def _shrink_state_lines(
+    lines: list[str],
+    pair_lines: set[int],
+    w_start: int,
+    w_end: int,
+    budget: int,
+) -> list[int]:
+    """E-B の state 縮小: ペア端点行は必ず保持し、周辺のコンテキスト行を
+    端点からの距離 r で拡張しながら、state JSON サイズが budget 以下に
+    なる最大の行 index 集合を返す。最小集合(端点行のみ)でも超過する
+    場合は端点行のみを返す。"""
+    full = set(range(w_start, w_end + 1))
+
+    def size(sel: set[int]) -> int:
+        return _state_chars([lines[k] for k in sorted(sel)])
+
+    if size(full) <= budget:
+        return sorted(full)
+    sel = set(pair_lines)
+    r = 1
+    while sel != full:
+        cand = {
+            x
+            for k in pair_lines
+            for x in range(max(w_start, k - r), min(w_end, k + r) + 1)
+        }
+        if size(cand) > budget:
+            return sorted(sel)
+        sel = cand
+        r += 1
+    return sorted(sel)
+
+
+async def exp_eb(
+    engine: Engine,
+    doc: str,
+    r: int = R_EB,
+    levels: Sequence[int] = EB_LEVELS,
+    q: int = EC_PAIRS,
+    span: tuple[int, int] = EB_SPAN,
+) -> list[dict[str, Any]]:
+    """E-B: 定数化した窓の state を複数水準に縮め、窓内SDが回復するか
+    検証する。質問文・Q・R は E-C/E-A と同一(現行文・Q=20・R=3)。
+    state の縮小に伴い質問文中の行 index は state 内位置に再写像する
+    (確率キーはペアの doc 行 index を維持し突き合わせ可能にする)。"""
+    text = Path(doc).read_text(encoding="utf-8")
+    lines, _, candidates = _doc_inputs(doc)
+    windows, _ = build_windows(lines, candidates)
+    targets = [
+        w
+        for w in windows
+        if w.pairs and w.pairs[0][0] == span[0] and w.pairs[-1][1] == span[1]
+    ]
+    if not targets:
+        msg = f"pair span {span} の窓が見つからない: {doc}"
+        raise ValueError(msg)
+    w = targets[0]
+    pair_lines = {k for p in w.pairs for k in p}
+    runs: list[dict[str, Any]] = []
+    for level in levels:
+        sel = _shrink_state_lines(lines, pair_lines, w.start, w.end, level)
+        state = {"lines": [lines[k] for k in sel]}
+        pos = {k: idx for idx, k in enumerate(sel)}
+        chars = _state_chars(state["lines"])
+        for rep in range(r):
+            run: dict[str, Any] = {
+                "experiment": "E-B",
+                "doc": doc,
+                "rep": rep,
+                "input_sha256": _input_hash(text),
+                "variant": "current",
+                "polarity": 1,
+                "params": {
+                    "level": level,
+                    "q": q,
+                    "state_chars": chars,
+                    "n_state_lines": len(sel),
+                    "pair_span": list(span),
+                },
+                "requests": [],
+            }
+            for chunk in batched(w.pairs, q, strict=False):
+                await _ask(
+                    engine,
+                    run["requests"],
+                    state,
+                    {f"b{i}": _boundary_question(pos[i], pos[j]) for i, j in chunk},
+                    meta={
+                        "pairs": [list(p) for p in chunk],
+                        "state_chars": chars,
+                        "n_state_lines": len(sel),
+                    },
+                )
+            runs.append(_finish_run(run))
+    return runs
+
+
 async def run_all(args: argparse.Namespace) -> dict[str, Any]:
     engine = _make_engine(args.concurrency)
     out: dict[str, Any] = {
@@ -330,6 +438,16 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
         out["runs"].extend(await exp_ec(engine, data, r=args.rep_ec, q=args.q))
     if "ea" in stages and data is not None:
         out["runs"].extend(await exp_ea(engine, data, r=args.rep_ea))
+    if "eb" in stages:
+        out["runs"].extend(
+            await exp_eb(
+                engine,
+                args.eb_doc,
+                r=args.rep_eb,
+                levels=args.eb_levels,
+                q=args.q,
+            )
+        )
     return out
 
 
@@ -363,6 +481,19 @@ def plan(args: argparse.Namespace) -> dict[str, int]:
             if n_pairs >= 0
             else -1
         )
+    if "eb" in args.stages:
+        lines, _, candidates = _doc_inputs(args.eb_doc)
+        windows, _ = build_windows(lines, candidates)
+        n_pairs_eb = sum(
+            len(w.pairs)
+            for w in windows
+            if w.pairs and w.pairs[0][0] == EB_SPAN[0] and w.pairs[-1][1] == EB_SPAN[1]
+        )
+        counts["E-B"] = (
+            -(-n_pairs_eb // args.q) * len(args.eb_levels) * args.rep_eb
+            if n_pairs_eb
+            else -1
+        )
     counts["total"] = sum(v for v in counts.values() if v > 0)
     return counts
 
@@ -378,12 +509,21 @@ def main() -> int:
     ap.add_argument(
         "--stages",
         nargs="+",
-        choices=["cache", "ee", "ec", "ea"],
+        choices=["cache", "ee", "ec", "ea", "eb"],
         default=["cache", "ee", "ec", "ea"],
     )
     ap.add_argument("--rep-ee", type=int, default=R_EE)
     ap.add_argument("--rep-ec", type=int, default=R_EC)
     ap.add_argument("--rep-ea", type=int, default=R_EA)
+    ap.add_argument("--rep-eb", type=int, default=R_EB)
+    ap.add_argument("--eb-doc", default=DEFAULT_DOCS[0], help="E-B の対象文書")
+    ap.add_argument(
+        "--eb-levels",
+        type=int,
+        nargs="+",
+        default=list(EB_LEVELS),
+        help="E-B の state 文字数水準",
+    )
     ap.add_argument("--q", type=int, default=EC_PAIRS, help="E-C のペア数/req")
     ap.add_argument("--ea-qs", type=int, nargs="+", default=list(EA_QS))
     ap.add_argument(

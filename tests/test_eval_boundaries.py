@@ -162,6 +162,57 @@ async def test_ea_chunks_pairs_by_q_and_keeps_state() -> None:
     assert len(runs[0]["params"]["labels"]) == 20
 
 
+def test_shrink_state_lines_keeps_pair_lines_and_hits_budget(
+    tmp_path: Any,
+) -> None:
+    mod = _load()
+    # 各行20字×100行の文書、ペア端点は 10,20,30,40
+    lines = [f"line-{k:03d}-" + "x" * 10 for k in range(100)]
+    pair_lines = {10, 20, 30, 40}
+    full = mod._shrink_state_lines(lines, pair_lines, 0, 99, 10**9)
+    assert full == list(range(100))
+    shrunk = mod._shrink_state_lines(lines, pair_lines, 0, 99, 500)
+    assert set(pair_lines) <= set(shrunk)
+    assert mod._state_chars([lines[k] for k in shrunk]) <= 500
+    # 予算を絞るほど行数が単調に減る
+    smaller = mod._shrink_state_lines(lines, pair_lines, 0, 99, 250)
+    assert len(smaller) <= len(shrunk)
+    # 極小予算でもペア端点は残る
+    tiny = mod._shrink_state_lines(lines, pair_lines, 0, 99, 1)
+    assert set(pair_lines) <= set(tiny)
+
+
+async def test_eb_runs_levels_and_remaps_question_indices(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    mod = _load()
+    # ペア span が (5, 14) の窓を作る: 行 0-19、ペア (5,7),(7,9),(12,14)
+    doc = tmp_path / "doc.md"
+    doc.write_text("\n".join(f"text {k}" for k in range(20)), encoding="utf-8")
+    fake_window = type(
+        "W", (), {"start": 0, "end": 19, "pairs": [(5, 7), (7, 9), (12, 14)]}
+    )()
+    monkeypatch.setattr(mod, "build_windows", lambda lines, cands: ([fake_window], []))
+    monkeypatch.setattr(
+        mod, "find_boundary_candidates", lambda lines, ex, s: [(5, 7), (7, 9), (12, 14)]
+    )
+    eng = _FakeEngine(probs={"b5": 0.9, "b7": 0.5, "b12": 0.3})
+    runs = await mod.exp_eb(eng, str(doc), r=2, levels=[10**9, 120], q=2, span=(5, 14))
+    assert len(runs) == 4  # 2 levels × 2 reps
+    assert all(r["experiment"] == "E-B" for r in runs)
+    big = runs[0]
+    assert big["params"]["n_state_lines"] == 20
+    # q=2 → 2 req/run、30ではなく3ペア → 2+1
+    assert big["n_requests"] == 2
+    small = runs[2]
+    assert small["params"]["n_state_lines"] < 20
+    # 質問 index は state 内位置に再写像される(キーは doc index のまま)
+    q0 = small["requests"][0]["questions"]["b5"]
+    assert "lines[0]" in q0  # ペア端点 5 は縮小 state の先頭付近
+    # pairs メタは doc 行 index のまま保持
+    assert small["requests"][0]["pairs"] == [[5, 7], [7, 9]]
+
+
 def test_state_hash_stable() -> None:
     mod = _load()
     h1 = mod.state_hash({"lines": ["a", "b"]})
