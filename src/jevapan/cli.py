@@ -1,8 +1,10 @@
 import argparse
 import asyncio
+import fnmatch
 import json
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
@@ -21,7 +23,52 @@ def _make_engine(concurrency: int) -> Engine:
     )
 
 
-def _iter_inputs(paths: list[str], recursive: bool) -> list[tuple[str, str]]:
+# ディレクトリ走査で既定除外するディレクトリ名のパターン(パス要素への
+# fnmatch)。VCS・ビルド生成物・仮想環境・各種キャッシュ。生成物を
+# lint してトークンを浪費する実害があった(issue #9)
+DEFAULT_EXCLUDES: tuple[str, ...] = (
+    ".git",
+    ".hg",
+    ".svn",
+    "_build",
+    "build",
+    "dist",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".tox",
+    ".nox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "*.egg-info",
+    ".worktrees",
+)
+
+
+def _is_excluded(rel: Path, excludes: Sequence[str]) -> bool:
+    """走査で見つけた相対パスが除外対象か。既定除外は各パス要素に、
+    --exclude パターンは相対パスと各パス要素(basename 含む)に
+    fnmatch でマッチさせる。明示指定のファイルには適用しない。"""
+    if any(
+        fnmatch.fnmatch(part, pat) for part in rel.parts for pat in DEFAULT_EXCLUDES
+    ):
+        return True
+    rel_posix = rel.as_posix()
+    return any(
+        fnmatch.fnmatch(rel_posix, pat)
+        or any(fnmatch.fnmatch(part, pat) for part in rel.parts)
+        # 'docs/superpowers' のような複数要素のディレクトリ指定が
+        # 配下の全ファイルに効くよう祖先ディレクトリにもマッチさせる
+        or any(fnmatch.fnmatch(parent.as_posix(), pat) for parent in rel.parents)
+        for pat in excludes
+    )
+
+
+def _iter_inputs(
+    paths: list[str], recursive: bool, excludes: Sequence[str] = ()
+) -> list[tuple[str, str]]:
     """(label, text) のリストを返す。'-' は stdin。"""
     out: list[tuple[str, str]] = []
     for p in paths:
@@ -33,6 +80,8 @@ def _iter_inputs(paths: list[str], recursive: bool) -> list[tuple[str, str]]:
             if not recursive:
                 raise ValueError(f"{p} is a directory; pass -r to recurse")
             for f in sorted(path.rglob("*.md")) + sorted(path.rglob("*.txt")):
+                if _is_excluded(f.relative_to(path), excludes):
+                    continue
                 out.append((str(f), f.read_text(encoding="utf-8")))
         else:
             out.append((str(path), path.read_text(encoding="utf-8")))
@@ -67,7 +116,7 @@ async def _run(args: argparse.Namespace) -> int:
             Path.cwd(),
             config_path=Path(args.config) if args.config else None,
         )
-        inputs = _iter_inputs(args.paths, args.recursive)
+        inputs = _iter_inputs(args.paths, args.recursive, args.exclude)
     except (ValueError, OSError) as e:
         print(f"jevapan: {e}", file=sys.stderr)
         return 2
@@ -94,6 +143,13 @@ def main(argv: list[str] | None = None) -> int:
     chk = sub.add_parser("check", help="lint files")
     chk.add_argument("paths", nargs="+", help="files, dirs, or '-' for stdin")
     chk.add_argument("-r", "--recursive", action="store_true")
+    chk.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="ディレクトリ走査から除外するパターン(相対パス/名前、複数指定可)",
+    )
     chk.add_argument("--ruleset", default=None)
     chk.add_argument("--config", default=None, help="jevapan.yaml path")
     chk.add_argument("--format", choices=["auto", "human", "json"], default="auto")
