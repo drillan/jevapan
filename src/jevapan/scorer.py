@@ -5,7 +5,7 @@ from typing import Any
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
-from jevapan.mask import masked_slice
+from jevapan.mask import PLACEHOLDER_NOTE, masked_slice
 from jevapan.models import Block
 from jevapan.ruleset import Category, Scope
 
@@ -18,8 +18,7 @@ SCORE_STATE_LIMIT = 32000
 # 同一視しない)。全カテゴリに一貫適用するためコード側で付与する
 AUTHOR_SCOPE_CLAUSE = (
     " 評価対象は著者自身の記述のみとし、引用・悪文の説明例・ルール定義の"
-    "中の文は採点対象としない。[excluded] はコードブロック・表・"
-    "front matter を置き換えた目印であり評価対象の文章ではない。"
+    "中の文は採点対象としない。" + PLACEHOLDER_NOTE
 )
 
 

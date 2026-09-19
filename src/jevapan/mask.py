@@ -13,6 +13,13 @@ _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 MASK_PLACEHOLDER = "[excluded]"
 
+# scorer/locator の質問文に付す説明。masked 入力に現れる
+# プレースホルダを評価対象の文章と誤認させないための1文
+PLACEHOLDER_NOTE = (
+    f"{MASK_PLACEHOLDER} はコードブロック・表・front matter を"
+    "置き換えた目印であり評価対象の文章ではない。"
+)
+
 
 def _open_fence(line: str) -> tuple[str, int] | None:
     m = _FENCE_RE.match(line)

@@ -4,7 +4,7 @@ from contextvars import ContextVar
 
 from jevapan.context import nearest_heading, preceding_context
 from jevapan.engine import Engine, payload_chars
-from jevapan.mask import masked_slice
+from jevapan.mask import PLACEHOLDER_NOTE, masked_slice
 from jevapan.models import Block, Violation
 from jevapan.ruleset import Category
 
@@ -71,7 +71,7 @@ async def locate_in_block(
         "candidates": [t for _, _, t in cands],
     }
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]` {PLACEHOLDER_NOTE}"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:
@@ -108,14 +108,16 @@ async def locate_in_document(
 ) -> list[Violation]:
     if not category.locate:
         return []
-    pseudo = Block(1, len(all_lines), text)
+    # pseudo Block は start/end のみ使う(split_candidates が参照するのは
+    # start のみ)。text は masked なので行範囲と一致せず入れない
+    pseudo = Block(1, len(all_lines), "")
     cands = split_candidates(pseudo, all_lines, excluded)
     if not cands:
         return []
     document = text[:16000]
     state = {"document": document, "candidates": [t for _, _, t in cands]}
     questions = {
-        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]`"
+        f"s{i}": f"{category.locate} Candidate: `candidates[{i}]` {PLACEHOLDER_NOTE}"
         for i in range(len(cands))
     }
     if payload_chars(state, questions) > LOCATE_STATE_LIMIT:

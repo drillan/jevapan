@@ -103,7 +103,7 @@ def find_boundary_candidates(
             # run 内部の行(fence の内容行等)は opaque なコンテンツであり
             # その indent は項目判定に使わない。これは本ツールの選択で
             # あり CommonMark の規則ではない(CommonMark では fence 内の
-            # dedent 行は項目を閉じない)
+            # dedent 行で項目が閉じる)
             if ln.strip() and not in_excluded_run:
                 ind = _indent(ln)
                 while stack and ind < stack[-1][2]:
