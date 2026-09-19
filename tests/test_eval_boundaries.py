@@ -6,7 +6,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from jevapan.engine import NoulResult, Usage
+from jevapan.engine import Engine, NoulResult, Usage
 
 
 def _load() -> ModuleType:
@@ -211,6 +211,106 @@ async def test_eb_runs_levels_and_remaps_question_indices(
     assert "lines[0]" in q0  # ペア端点 5 は縮小 state の先頭付近
     # pairs メタは doc 行 index のまま保持
     assert small["requests"][0]["pairs"] == [[5, 7], [7, 9]]
+
+
+class _FakeTypedClient:
+    """engine._call 経由の Question オブジェクトに応答するスタブ。
+
+    回答型は questions のキー名で決める: g* → choice、それ以外 → noul。"""
+
+    def __init__(self, p: float = 0.5) -> None:
+        self._p = p
+        self.sent: list[dict[str, Any]] = []
+
+    async def system_one(self, state: Any, questions: dict[str, Any]) -> Any:
+        self.sent.append(questions)
+        answers = {}
+        for k, q in questions.items():
+            if getattr(q, "type", None) == "choice":
+                labels = list(q.criteria)
+                answers[k] = type(
+                    "A",
+                    (),
+                    {
+                        "type": "choice",
+                        "choice": labels[0],
+                        "confidence": 0.7,
+                        "probabilities": {lab: self._p / len(labels) for lab in labels},
+                    },
+                )()
+            else:
+                answers[k] = type("A", (), {"type": "noul", "noul": self._p})()
+        return type(
+            "R",
+            (),
+            {
+                "answers": answers,
+                "model": "m1",
+                "usage": type("U", (), {"input_tokens": 1, "output_tokens": 2})(),
+            },
+        )()
+
+
+def _eb_window_stub(mod: ModuleType, monkeypatch: Any, pairs: list) -> Any:
+    w = type("W", (), {"start": 0, "end": 19, "pairs": pairs})()
+    monkeypatch.setattr(mod, "build_windows", lambda lines, cands: ([w], []))
+    monkeypatch.setattr(mod, "find_boundary_candidates", lambda lines, ex, s: [])
+    return w
+
+
+async def test_ecrit_uses_noul_criteria_and_labeled_pairs(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    mod = _load()
+    doc = tmp_path / "doc.md"
+    doc.write_text("\n".join(f"text {k}" for k in range(20)), encoding="utf-8")
+    _eb_window_stub(mod, monkeypatch, [(5, 7), (7, 9), (12, 14)])
+    labels_ext = {
+        "labels": [
+            {"doc": "plan_eb", "i": 5, "j": 7, "label": "boundary"},
+            {"doc": "plan_eb", "i": 7, "j": 9, "label": "continue"},
+            {"doc": "plan_eb", "i": 12, "j": 14, "label": "continue"},
+            {"doc": "plan_eb", "i": 999, "j": 1000, "label": "boundary"},
+        ]
+    }
+    eng = Engine(client=_FakeTypedClient(0.6), sem=None)
+    runs = await mod.exp_ecrit(eng, str(doc), labels_ext, r=2, q=20, span=(5, 14))
+    assert len(runs) == 4  # 2 variants × 2 reps
+    assert {r["variant"] for r in runs} == {"criteria", "role_criteria"}
+    assert runs[0]["n_requests"] == 1  # 3 pairs ≤ q=20 → 1 req
+    req = runs[0]["requests"][0]
+    # 窓外ペア (999,1000) は除外される
+    assert sorted(req["question_keys"]) == ["b12", "b5", "b7"]
+    q = req["questions"]["b5"]
+    assert q["type"] == "noul"
+    assert q["criteria"]["true"] == mod.ECRIT_TRUE
+    assert "見出しとその直後の本文" in q["criteria"]["false"]
+    assert req["probs"]["b5"] == 0.6
+    # 質問 index は窓先頭からの相対位置
+    assert "lines[5]" in q["instructions"]
+
+
+async def test_echoice_groups_pairs_and_records_choices(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    mod = _load()
+    doc = tmp_path / "doc.md"
+    doc.write_text("\n".join(f"text {k}" for k in range(20)), encoding="utf-8")
+    _eb_window_stub(mod, monkeypatch, [(5, 7), (7, 9), (12, 14)])
+    eng = Engine(client=_FakeTypedClient(0.9), sem=None)
+    runs = await mod.exp_echoice(eng, str(doc), r=2, group_size=2, span=(5, 14))
+    assert len(runs) == 2  # 2 reps
+    assert all(r["experiment"] == "E-CHOICE" for r in runs)
+    assert runs[0]["params"]["n_groups"] == 2
+    assert runs[0]["n_requests"] == 2  # 1群=1リクエスト
+    req = runs[0]["requests"][0]
+    assert req["question_keys"] == ["g0"]
+    crit = req["questions"]["g0"]["criteria"]
+    assert set(crit) == {"b5", "b7", "none"}  # none 退避先あり
+    ch = req["choices"]["g0"]
+    assert ch["choice"] == "b5"
+    assert set(ch["probabilities"]) == {"b5", "b7", "none"}
+    assert req["pairs"] == [[5, 7], [7, 9]]
 
 
 def test_state_hash_stable() -> None:

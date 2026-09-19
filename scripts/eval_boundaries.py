@@ -33,8 +33,10 @@ from itertools import batched
 from pathlib import Path
 from typing import Any
 
+from typesafe_sdk import Choice, Noul, NoulCriteria
+
 from jevapan.cli import _make_engine
-from jevapan.engine import Engine, NoulResult
+from jevapan.engine import Engine, NoulResult, _model_of, _usage_of
 from jevapan.mask import analyze_syntax
 from jevapan.segmenter import (
     _boundary_question,
@@ -59,6 +61,18 @@ EA_QS = (1, 5, 20)
 # された窓)。水準は state JSON サイズ(文字数)の上限。
 EB_SPAN = (1250, 1736)
 EB_LEVELS = (16855, 8000, 4000, 2000)
+DEFAULT_LABELS_EXT = "scripts/boundary_eval_labels_ext.json"
+
+R_ECRIT = 3
+R_ECHOICE = 3
+# E-CRIT: Noul.criteria の true/false 説明文(hub 裁定済み規則を明示)
+ECRIT_TRUE = "新しいブロックが始まる。話題または役割が変わる点"
+ECRIT_FALSE = (
+    "同一ブロックの継続。見出しとその直後の本文、Run: とその Expected:、"
+    "ラベル行とその中身は同一ブロック"
+)
+# E-CHOICE: ペア群の既定サイズ(5-6件群=5-6群、10件群=3群で9 req)
+EB_GROUP_SIZE = 10
 
 
 def _q_confidence(i: int, j: int) -> str:
@@ -103,6 +117,13 @@ QUESTION_VARIANTS: dict[str, dict[str, Any]] = {
     "negative": {"fn": _q_negative, "polarity": -1},
 }
 
+# E-CRIT の instructions バリアント。criteria は両腕で同一(ECRIT_TRUE/
+# ECRIT_FALSE)を付し、instructions の wording 差のみを比較する
+ECRIT_VARIANTS: dict[str, Callable[[int, int], str]] = {
+    "criteria": _boundary_question,
+    "role_criteria": _q_role,
+}
+
 
 def state_hash(state: Any) -> str:
     """state の正準 JSON の SHA-256。同一 state の識別用。"""
@@ -136,6 +157,46 @@ async def _ask(
         }
     )
     return res
+
+
+async def _ask_typed(
+    engine: Engine,
+    requests: list[dict[str, Any]],
+    state: Any,
+    questions: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+) -> Any:
+    """Noul/Choice 等の Question オブジェクトを直接送り、回答を記録。
+
+    noul は probs[key]=確率、choice は choices[key]={choice, confidence,
+    probabilities} で記録する。questions は wire 形式(model_dump)で保存。"""
+    resp = await engine._call(state, questions)
+    probs: dict[str, float] = {}
+    choices: dict[str, Any] = {}
+    for k in questions:
+        a = resp.answers[k]
+        if hasattr(a, "choice"):
+            choices[k] = {
+                "choice": a.choice,
+                "confidence": float(getattr(a, "confidence", 0.0)),
+                "probabilities": {str(x): float(y) for x, y in a.probabilities.items()},
+            }
+        else:
+            probs[k] = float(a.noul)
+    requests.append(
+        {
+            "state": state,
+            "state_sha256": state_hash(state),
+            "question_keys": sorted(questions),
+            "questions": {k: v.model_dump(mode="json") for k, v in questions.items()},
+            "probs": probs,
+            "choices": choices,
+            "model": _model_of(resp),
+            "usage": asdict(_usage_of(resp)),
+            **(meta or {}),
+        }
+    )
+    return resp
 
 
 def _finish_run(run: dict[str, Any]) -> dict[str, Any]:
@@ -323,6 +384,20 @@ def _shrink_state_lines(
     return sorted(sel)
 
 
+def _eb_window(lines: list[str], candidates: Any, span: tuple[int, int]) -> Any:
+    """ペア span が一致する build_windows 窓を返す(E-B 系実験の共通)。"""
+    windows, _ = build_windows(lines, candidates)
+    targets = [
+        w
+        for w in windows
+        if w.pairs and w.pairs[0][0] == span[0] and w.pairs[-1][1] == span[1]
+    ]
+    if not targets:
+        msg = f"pair span {span} の窓が見つからない"
+        raise ValueError(msg)
+    return targets[0]
+
+
 async def exp_eb(
     engine: Engine,
     doc: str,
@@ -337,16 +412,7 @@ async def exp_eb(
     (確率キーはペアの doc 行 index を維持し突き合わせ可能にする)。"""
     text = Path(doc).read_text(encoding="utf-8")
     lines, _, candidates = _doc_inputs(doc)
-    windows, _ = build_windows(lines, candidates)
-    targets = [
-        w
-        for w in windows
-        if w.pairs and w.pairs[0][0] == span[0] and w.pairs[-1][1] == span[1]
-    ]
-    if not targets:
-        msg = f"pair span {span} の窓が見つからない: {doc}"
-        raise ValueError(msg)
-    w = targets[0]
+    w = _eb_window(lines, candidates, span)
     pair_lines = {k for p in w.pairs for k in p}
     runs: list[dict[str, Any]] = []
     for level in levels:
@@ -384,6 +450,127 @@ async def exp_eb(
                     },
                 )
             runs.append(_finish_run(run))
+    return runs
+
+
+async def exp_ecrit(
+    engine: Engine,
+    doc: str,
+    labels_ext: dict[str, Any],
+    r: int = R_ECRIT,
+    q: int = EC_PAIRS,
+    span: tuple[int, int] = EB_SPAN,
+) -> list[dict[str, Any]]:
+    """E-CRIT(優先度2): Noul.criteria 実験。現行 segmenter は
+    instructions のみで criteria 未使用 — true/false に裁定済み規則を
+    明示し、定数化した E-B 窓で回復するかを検証する。
+    対象は labels_ext の doc=="plan_eb" のラベル付きペア(窓ペアと
+    交差)。state は窓全体(E-B と同一素材)。評価は窓内SD(主)+AUC(従)。"""
+    text = Path(doc).read_text(encoding="utf-8")
+    lines, _, candidates = _doc_inputs(doc)
+    w = _eb_window(lines, candidates, span)
+    pair_set = set(w.pairs)
+    pairs = [
+        (lb["i"], lb["j"])
+        for lb in labels_ext["labels"]
+        if lb.get("doc") == "plan_eb" and (lb["i"], lb["j"]) in pair_set
+    ]
+    if not pairs:
+        msg = f"plan_eb ラベルが窓ペアと交差しない: {doc} span={span}"
+        raise ValueError(msg)
+    state = {"lines": lines[w.start : w.end + 1]}
+    crit = NoulCriteria(true=ECRIT_TRUE, false=ECRIT_FALSE)
+    runs: list[dict[str, Any]] = []
+    for name, fn in ECRIT_VARIANTS.items():
+        for rep in range(r):
+            run: dict[str, Any] = {
+                "experiment": "E-CRIT",
+                "doc": doc,
+                "rep": rep,
+                "input_sha256": _input_hash(text),
+                "variant": name,
+                "polarity": 1,
+                "params": {
+                    "q": q,
+                    "criteria": {"true": ECRIT_TRUE, "false": ECRIT_FALSE},
+                    "n_pairs": len(pairs),
+                    "pair_span": list(span),
+                },
+                "requests": [],
+            }
+            for chunk in batched(pairs, q, strict=False):
+                await _ask_typed(
+                    engine,
+                    run["requests"],
+                    state,
+                    {
+                        f"b{i}": Noul(
+                            instructions=fn(i - w.start, j - w.start),
+                            criteria=crit,
+                        )
+                        for i, j in chunk
+                    },
+                    meta={"pairs": [list(p) for p in chunk]},
+                )
+            runs.append(_finish_run(run))
+    return runs
+
+
+async def exp_echoice(
+    engine: Engine,
+    doc: str,
+    r: int = R_ECHOICE,
+    group_size: int = EB_GROUP_SIZE,
+    span: tuple[int, int] = EB_SPAN,
+) -> list[dict[str, Any]]:
+    """E-CHOICE(優先度3): Choice 定式化。30ペアを group_size 件ずつの
+    選択肢群に分け、「この中でどこが新ブロックの開始か」の強制比較に
+    変更 — 定数化が構造的に起きない形式。1群=1リクエスト(hub 見積り
+    「3群なら9 req」に整合)。選択肢には none(どれも境界でない)を
+    付す — continue のみの群でも強制誤検出しないための退避先。"""
+    text = Path(doc).read_text(encoding="utf-8")
+    lines, _, candidates = _doc_inputs(doc)
+    w = _eb_window(lines, candidates, span)
+    groups = list(batched(w.pairs, group_size, strict=False))
+    state = {"lines": lines[w.start : w.end + 1]}
+    instructions = (
+        "The document is given as numbered lines in state.lines. "
+        "Among the junctions below, at which one does a new block "
+        "begin — where the topic or the role of the text changes? "
+        "Choose exactly one; choose 'none' if none of them does."
+    )
+    runs: list[dict[str, Any]] = []
+    for rep in range(r):
+        run: dict[str, Any] = {
+            "experiment": "E-CHOICE",
+            "doc": doc,
+            "rep": rep,
+            "input_sha256": _input_hash(text),
+            "variant": "choice",
+            "polarity": 1,
+            "params": {
+                "group_size": group_size,
+                "n_groups": len(groups),
+                "pair_span": list(span),
+            },
+            "requests": [],
+        }
+        for gi, grp in enumerate(groups):
+            criteria: dict[str, Any] = {
+                f"b{i}": (
+                    f"junction between lines[{i - w.start}] and lines[{j - w.start}]"
+                )
+                for i, j in grp
+            }
+            criteria["none"] = "どの接続点も新しいブロックの開始ではない"
+            await _ask_typed(
+                engine,
+                run["requests"],
+                state,
+                {f"g{gi}": Choice(instructions=instructions, criteria=criteria)},
+                meta={"pairs": [list(p) for p in grp], "group": gi},
+            )
+        runs.append(_finish_run(run))
     return runs
 
 
@@ -448,6 +635,34 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
                 q=args.q,
             )
         )
+    labels_ext = None
+    if "crit" in stages:
+        lex_path = Path(args.labels_ext)
+        if lex_path.exists():
+            raw_lex = lex_path.read_text(encoding="utf-8")
+            labels_ext = json.loads(raw_lex)
+            out["inputs"][str(lex_path)] = {"sha256": _input_hash(raw_lex)}
+        else:
+            out["labels_ext_missing"] = f"labels file not found: {lex_path}"
+    if "crit" in stages and labels_ext is not None:
+        out["runs"].extend(
+            await exp_ecrit(
+                engine,
+                args.eb_doc,
+                labels_ext,
+                r=args.rep_ecrit,
+                q=args.q,
+            )
+        )
+    if "choice" in stages:
+        out["runs"].extend(
+            await exp_echoice(
+                engine,
+                args.eb_doc,
+                r=args.rep_echoice,
+                group_size=args.eb_group_size,
+            )
+        )
     return out
 
 
@@ -494,6 +709,34 @@ def plan(args: argparse.Namespace) -> dict[str, int]:
             if n_pairs_eb
             else -1
         )
+    if {"crit", "choice"} & set(args.stages):
+        lines, _, candidates = _doc_inputs(args.eb_doc)
+        try:
+            w_eb = _eb_window(lines, candidates, EB_SPAN)
+        except ValueError:
+            w_eb = None
+        if "crit" in args.stages:
+            n_crit = -1
+            lex_path = Path(args.labels_ext)
+            if w_eb is not None and lex_path.exists():
+                lex = json.loads(lex_path.read_text(encoding="utf-8"))
+                pair_set = set(w_eb.pairs)
+                n_crit = sum(
+                    1
+                    for lb in lex["labels"]
+                    if lb.get("doc") == "plan_eb" and (lb["i"], lb["j"]) in pair_set
+                )
+            counts["E-CRIT"] = (
+                -(-n_crit // args.q) * len(ECRIT_VARIANTS) * args.rep_ecrit
+                if n_crit > 0
+                else -1
+            )
+        if "choice" in args.stages:
+            counts["E-CHOICE"] = (
+                -(-len(w_eb.pairs) // args.eb_group_size) * args.rep_echoice
+                if w_eb is not None
+                else -1
+            )
     counts["total"] = sum(v for v in counts.values() if v > 0)
     return counts
 
@@ -509,14 +752,27 @@ def main() -> int:
     ap.add_argument(
         "--stages",
         nargs="+",
-        choices=["cache", "ee", "ec", "ea", "eb"],
+        choices=["cache", "ee", "ec", "ea", "eb", "crit", "choice"],
         default=["cache", "ee", "ec", "ea"],
     )
     ap.add_argument("--rep-ee", type=int, default=R_EE)
     ap.add_argument("--rep-ec", type=int, default=R_EC)
     ap.add_argument("--rep-ea", type=int, default=R_EA)
     ap.add_argument("--rep-eb", type=int, default=R_EB)
-    ap.add_argument("--eb-doc", default=DEFAULT_DOCS[0], help="E-B の対象文書")
+    ap.add_argument("--rep-ecrit", type=int, default=R_ECRIT)
+    ap.add_argument("--rep-echoice", type=int, default=R_ECHOICE)
+    ap.add_argument("--eb-doc", default=DEFAULT_DOCS[0], help="E-B 系の対象文書")
+    ap.add_argument(
+        "--labels-ext",
+        default=DEFAULT_LABELS_EXT,
+        help="E-CRIT の plan_eb ラベル JSON",
+    )
+    ap.add_argument(
+        "--eb-group-size",
+        type=int,
+        default=EB_GROUP_SIZE,
+        help="E-CHOICE のペア群サイズ",
+    )
     ap.add_argument(
         "--eb-levels",
         type=int,
