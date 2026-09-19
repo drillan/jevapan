@@ -18,6 +18,8 @@ uv tool install git+https://github.com/drillan/jevapan
 export TYPESAFE_API_KEY=...
 ```
 
+実行時に cwd の `.env` も自動で読み込む(KEY=VALUE・`export` 接頭辞・
+引用符・コメントを受理する簡易パーサ。既存の環境変数は上書きしない)。
 未設定の場合は exit 2 で終了する。
 
 ## 使い方
