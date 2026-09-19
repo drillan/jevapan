@@ -9,7 +9,7 @@ from jevapan.models import Block
 
 _BULLET_RE = re.compile(r"^ *([-+*])(?: |$)")
 _ORDERED_RE = re.compile(r"^ *\d{1,9}([.)])(?: |$)")
-_THEMATIC_RE = re.compile(r"^ {0,3}([-*_])( *\1){2,} *$")
+_THEMATIC_RE = re.compile(r"^ *([-*_])( *\1){2,} *$")
 
 
 def _list_item(line: str) -> tuple[str, int] | None:
@@ -19,11 +19,13 @@ def _list_item(line: str) -> tuple[str, int] | None:
 
     同種マーカの連続は同一リストの項目継続とみなす。CommonMark と同じく
     異なる bullet 文字・異なる ordered 区切りは別リストとみなす。
-    空白は半角スペースのみ(mask.py の _FENCE_RE と揃える)。任意の
+    空白は半角スペースのみ(mask.py の _FENCE_RE と揃える)。タブは
+    expandtabs(4) で4桁タブストップに展開してから判定する。任意の
     空白インデントのネスト項目を認める。4文字以上のインデント項目は
     CommonMark では indented code の可能性があるが、mask.py が
     indented code を検出しないため項目扱いで割り切る。thematic break
-    は項目より優先して非リストとする。"""
+    は項目より優先して非リストとする(インデントされたものも含む)。"""
+    line = line.expandtabs(4)
     if _THEMATIC_RE.match(line):
         return None
     m = _BULLET_RE.match(line)
@@ -36,8 +38,9 @@ def _list_item(line: str) -> tuple[str, int] | None:
 
 
 def _indent(line: str) -> int:
-    """先頭の半角スペース数(タブはインデントとみなさない)。"""
-    return len(line) - len(line.lstrip(" "))
+    """先頭の半角スペース数。タブは expandtabs(4) で展開してから計測。"""
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip(" "))
 
 
 def _boundary_question(i: int, j: int) -> str:
@@ -70,11 +73,18 @@ def find_boundary_candidates(
 ) -> list[tuple[int, int]]:
     """各非空・非除外行 i と次の非空・非除外行 j のペア(0始まり)を返す。
     空行は飛ばしても連結を維持するが、除外行は連結を断つ。
-    同一リスト木の継続(同種マーカの tight 連続・項目の content 列以上に
-    インデントされた非マーカ継続行)は構文的に同ブロックと決まるため
-    候補にしない(実測で退化1行ブロックの FP 温床だった)。空行を挟む
-    loose 連続は抑制せず Jev の意味判定に委ねる。"""
+    開いているリスト項目のコンテキスト(マーカ種別・content 列)を
+    スタックで追跡し、同一リスト木の継続と構文的に決まるペアは候補に
+    しない(実測で退化1行ブロックの FP 温床だった):
+    - 最内項目の content 列以上にインデントされた非マーカ継続行
+      (空行を挟んでも同一項目と構文一意に決まる)
+    - content 列以上にインデントされたマーカ行 = ネスト項目(種別不問)
+    - dedent 後の同レベル・同種マーカ = 兄弟項目
+    構文抑制は tight 連続のみで、空行を挟む loose な項目ペアは
+    Jev の意味判定に委ねる。"""
     cands: list[tuple[int, int]] = []
+    # (マーカ種別, マーカのインデント, content 列) のスタック
+    stack: list[tuple[str, int, int]] = []
     prev: int | None = None
     blank_between = False
     for i, ln in enumerate(lines):
@@ -85,27 +95,37 @@ def find_boundary_candidates(
         if not ln.strip():
             blank_between = True
             continue
-        if prev is not None:
-            pitem = _list_item(lines[prev])
-            citem = _list_item(ln)
-            # 構文抑制は tight 連続のみ(空行を挟む loose 連続は候補に残し
-            # Jev が意味判定する)。同一リスト木の継続: 同種マーカ連続、
-            # または content 列以上にインデントされた非マーカ継続行
-            tight = not blank_between
-            same_list = (
-                pitem is not None
-                and citem is not None
-                and tight
-                and citem[0] == pitem[0]
-            )
-            lazy = (
-                pitem is not None
-                and citem is None
-                and tight
-                and _indent(ln) >= pitem[1]
-            )
-            if not same_list and not lazy:
+        ind = _indent(ln)
+        item = _list_item(ln)
+        if item is None:
+            # content 列に届かない項目は閉じる。残った最内項目の内側なら
+            # 継続行として抑制(空行を挟んでも構文一意)
+            while stack and ind < stack[-1][2]:
+                stack.pop()
+            if prev is not None and not stack:
                 cands.append((prev, i))
+        else:
+            kind, content_col = item
+            tight = not blank_between
+            if stack and ind >= stack[-1][2]:
+                # 最内項目の内側: ネスト項目として抑制(種別不問)。
+                # loose なら候補に残すがコンテキストは積む
+                if prev is not None and not tight:
+                    cands.append((prev, i))
+                stack.append((kind, ind, content_col))
+            else:
+                # dedent: より深い項目を閉じ、同レベルなら兄弟項目として
+                # 置き換える。同種マーカの tight な兄弟のみ抑制
+                while stack and stack[-1][1] > ind:
+                    stack.pop()
+                same = False
+                if stack and stack[-1][1] == ind:
+                    same = stack[-1][0] == kind
+                    stack[-1] = (kind, ind, content_col)
+                else:
+                    stack.append((kind, ind, content_col))
+                if prev is not None and not (tight and same):
+                    cands.append((prev, i))
         prev = i
         blank_between = False
     return cands
