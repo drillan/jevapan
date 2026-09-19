@@ -34,7 +34,8 @@ async def test_pipeline_skips_document_scope_over_limit() -> None:
 
 
 async def test_document_locate_state_overflow_is_skipped() -> None:
-    """document locate の state(先頭16000字+候補列)が上限超過 → skipped で明示。"""
+    """document locate の state(全文 document+候補列)が上限超過 →
+    skipped で明示(切り詰めない。issue #12)。"""
     eng = Engine(client=AsyncMock(), sem=None)
     eng.noul_batch = AsyncMock(  # type: ignore[method-assign]
         return_value=NoulResult(probs={"s0": 0.9})

@@ -84,6 +84,18 @@ async def test_locate_questions_explain_excluded_placeholder() -> None:
     assert "[excluded]" in q and "評価対象の文章ではない" in q
 
 
+async def test_locate_in_document_does_not_truncate_state() -> None:
+    """document locate の state["document"] は黙って切り詰めない(issue #12)。
+    上限超過は payload チェックの StateTooLargeError → skipped で明示する。"""
+    eng = Engine(client=AsyncMock(), sem=None)
+    cat = Category(name="c", description="d", levels=["a", "b"], locate="x?")
+    eng.noul_batch = AsyncMock(return_value=NoulResult(probs={"s0": 0.1}))  # type: ignore[method-assign]
+    text = "あ" * 17000  # 旧実装の黙った切り詰め境界(16000字)を超える
+    await locate_in_document(eng, text, cat, ["対象文。"])
+    state = eng.noul_batch.call_args.args[0]
+    assert state["document"] == text
+
+
 async def test_locate_in_block_raises_when_payload_too_large() -> None:
     """block locate の実ペイロード(文脈+本文+候補+質問)が上限超過なら
     StateTooLargeError(切り詰めない)。"""
