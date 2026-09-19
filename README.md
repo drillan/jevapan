@@ -26,12 +26,22 @@ export TYPESAFE_API_KEY=...
 jvp check docs/guide.md        # ファイル指定
 jvp check -                    # stdin(hook 用)
 jvp check docs/ -r             # 再帰(*.md, *.txt)
+  --exclude GLOB               # 走査除外パターン(複数指定可)
+  --no-default-excludes        # 既定の除外セットを無効化
   --ruleset NAME|PATH          # プリセット名 or YAML パス(既定: base)
   --config PATH                # jevapan.yaml 明示(既定: 自動探索)
   --format human|json|auto     # 既定: TTY なら human、パイプなら json
   --concurrency N              # 既定 20
   --fail-under SCORE           # CI ゲート用(任意)
 ```
+
+### 走査時の除外
+
+`-r` のディレクトリ走査では、生成物・VCS・仮想環境などのディレクトリを既定で除外する(除外した件数は stderr に警告として出る)。明示指定したファイル・ディレクトリ自身には除外を適用しない。
+
+既定除外: `.git` `.hg` `.svn` `_build` `build` `dist` `node_modules` `.venv` `venv` `.tox` `.nox` `.mypy_cache` `.pytest_cache` `.ruff_cache` `__pycache__` `*.egg-info` `.worktrees` `.claude` `.devin` `.agents` `.cursor`
+
+`--exclude GLOB` は走査ルートまたは cwd からの相対パス・名前にマッチする(`*` は `/` をまたぐ。複数指定可)。例: `--exclude 'docs/superpowers' --exclude '*.md.txt'`。`--no-default-excludes` で既定セットのみ無効化できる(`--exclude` は引き続き有効)。
 
 同梱プリセット: `base`(全ジャンル共通7カテゴリ) / `tech-doc`(base + rigor, reader_load, restraint) / `blog`(base + restraint, honesty、voice の閾値緩和)。
 

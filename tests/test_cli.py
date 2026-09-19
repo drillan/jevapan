@@ -98,6 +98,10 @@ def test_iter_inputs_excludes_generated_dirs(tmp_path: Any) -> None:
         "dist",
         "__pycache__",
         "x.egg-info",
+        ".claude",
+        ".devin",
+        ".agents",
+        ".cursor",
     ):
         _mkfile(tmp_path / d / "f.md")
         _mkfile(tmp_path / d / "f.txt")
@@ -131,6 +135,89 @@ def test_iter_inputs_explicit_file_bypasses_excludes(tmp_path: Any) -> None:
         [str(tmp_path / "node_modules" / "x.md")], False, excludes=["*.md"]
     )
     assert len(out) == 1
+
+
+def test_iter_inputs_warns_excluded_count(tmp_path: Any, capsys: Any) -> None:
+    """走査で除外したファイル数を stderr に「除外 N 件」と警告する
+    (除外の可観測化)。"""
+    _mkfile(tmp_path / "keep" / "f.md")
+    _mkfile(tmp_path / "_build" / "a.md")
+    _mkfile(tmp_path / "_build" / "b.md")
+    _mkfile(tmp_path / "node_modules" / "c.txt")
+    out = _iter_inputs([str(tmp_path)], True)
+    assert [label for label, _ in out] == [str(tmp_path / "keep" / "f.md")]
+    assert "除外 3 件" in capsys.readouterr().err
+
+
+def test_iter_inputs_no_default_excludes(tmp_path: Any) -> None:
+    """use_defaults=False で既定除外を無効化できる。--exclude は
+    引き続き効く。"""
+    _mkfile(tmp_path / "_build" / "f.md")
+    _mkfile(tmp_path / "keep" / "g.md")
+    out = _iter_inputs([str(tmp_path)], True, use_defaults=False)
+    assert len(out) == 2
+    out = _iter_inputs([str(tmp_path)], True, excludes=["*.md"], use_defaults=False)
+    assert out == []
+
+
+def test_iter_inputs_exclude_matches_cwd_relative(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """--exclude は走査ルート相対と cwd 相対の両方にマッチする。"""
+    _mkfile(tmp_path / "sub" / "skip" / "a.md")
+    _mkfile(tmp_path / "sub" / "keep" / "b.md")
+    monkeypatch.chdir(tmp_path)
+    # cwd 相対 'sub/skip' でも効く(走査ルート相対だけでは効かない書き方)
+    out = _iter_inputs(["sub"], True, excludes=["sub/skip"])
+    assert [label for label, _ in out] == ["sub/keep/b.md"]
+
+
+def test_iter_inputs_explicit_dir_bypasses_excludes(tmp_path: Any) -> None:
+    """明示指定のディレクトリ(走査ルート自身)は除外対象にならない。
+    node_modules を直接指定すれば中身は lint される。"""
+    _mkfile(tmp_path / "node_modules" / "x.md")
+    out = _iter_inputs([str(tmp_path / "node_modules")], True)
+    assert len(out) == 1
+
+
+def test_check_no_default_excludes_flag(monkeypatch: Any, tmp_path: Any) -> None:
+    """check --no-default-excludes で既定除外が無効化される。"""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    _mkfile(tmp_path / "_build" / "a.md")
+    _mkfile(tmp_path / "b.md")
+    fake = AsyncMock()
+    fake.summary = {"blocks": 1, "violations": 0, "errors": 0}
+    fake.violations = []
+    fake.skipped = []
+    fake.blocks = []
+    fake.block_scores = []
+    fake.doc_scores = {}
+    seen: list[str] = []
+
+    async def spy(engine: Any, text: str, ruleset: Any, label: str) -> Any:
+        seen.append(label)
+        fake.file = label
+        return fake
+
+    with (
+        patch("jevapan.cli._make_engine") as me,
+        patch("jevapan.cli.lint_text", spy),
+    ):
+        me.return_value = AsyncMock()
+        assert (
+            main(
+                [
+                    "check",
+                    str(tmp_path),
+                    "-r",
+                    "--format",
+                    "json",
+                    "--no-default-excludes",
+                ]
+            )
+            == 0
+        )
+    assert str(tmp_path / "_build" / "a.md") in seen
 
 
 def test_check_exclude_option(monkeypatch: Any, tmp_path: Any) -> None:

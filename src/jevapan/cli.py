@@ -44,32 +44,45 @@ DEFAULT_EXCLUDES: tuple[str, ...] = (
     "__pycache__",
     "*.egg-info",
     ".worktrees",
+    ".claude",
+    ".devin",
+    ".agents",
+    ".cursor",
 )
 
 
-def _is_excluded(rel: Path, excludes: Sequence[str]) -> bool:
-    """走査で見つけた相対パスが除外対象か。既定除外は各パス要素に、
-    --exclude パターンは相対パスと各パス要素(basename 含む)に
-    fnmatch でマッチさせる。明示指定のファイルには適用しない。"""
-    if any(
-        fnmatch.fnmatch(part, pat) for part in rel.parts for pat in DEFAULT_EXCLUDES
+def _is_excluded(
+    f: Path, root: Path, excludes: Sequence[str], use_defaults: bool
+) -> bool:
+    """走査で見つけたファイル f が除外対象か。既定除外は走査ルート相対の
+    各パス要素に、--exclude パターンは走査ルート相対・cwd 相対・basename
+    の和集合に fnmatchcase でマッチさせる(* は / をまたぐ)。
+    明示指定のファイル・ディレクトリ(走査ルート自身)には適用しない。"""
+    rel = f.relative_to(root)
+    if use_defaults and any(
+        fnmatch.fnmatchcase(part, pat) for part in rel.parts for pat in DEFAULT_EXCLUDES
     ):
         return True
-    rel_posix = rel.as_posix()
-    return any(
-        fnmatch.fnmatch(rel_posix, pat)
-        or any(fnmatch.fnmatch(part, pat) for part in rel.parts)
-        # 'docs/superpowers' のような複数要素のディレクトリ指定が
-        # 配下の全ファイルに効くよう祖先ディレクトリにもマッチさせる
-        or any(fnmatch.fnmatch(parent.as_posix(), pat) for parent in rel.parents)
-        for pat in excludes
-    )
+    # 走査ルート相対: パス全体・各要素(basename 含む)・祖先ディレクトリ
+    cands = {rel.as_posix(), *rel.parts}
+    cands.update(p.as_posix() for p in rel.parents if p.as_posix() != ".")
+    # cwd 相対でも同様にマッチさせる(どちらの書き方でも効く)
+    rel_cwd = Path(os.path.relpath(f, Path.cwd()))
+    cands.add(rel_cwd.as_posix())
+    cands.update(rel_cwd.parts)
+    cands.update(p.as_posix() for p in rel_cwd.parents if p.as_posix() != ".")
+    return any(fnmatch.fnmatchcase(c, pat) for c in cands for pat in excludes)
 
 
 def _iter_inputs(
-    paths: list[str], recursive: bool, excludes: Sequence[str] = ()
+    paths: list[str],
+    recursive: bool,
+    excludes: Sequence[str] = (),
+    use_defaults: bool = True,
 ) -> list[tuple[str, str]]:
-    """(label, text) のリストを返す。'-' は stdin。"""
+    """(label, text) のリストを返す。'-' は stdin。
+    除外はディレクトリ走査でのみ適用し、明示指定のファイル・
+    ディレクトリ(走査ルート自身)には適用しない。"""
     out: list[tuple[str, str]] = []
     for p in paths:
         if p == "-":
@@ -79,10 +92,14 @@ def _iter_inputs(
         if path.is_dir():
             if not recursive:
                 raise ValueError(f"{p} is a directory; pass -r to recurse")
+            n_excluded = 0
             for f in sorted(path.rglob("*.md")) + sorted(path.rglob("*.txt")):
-                if _is_excluded(f.relative_to(path), excludes):
+                if _is_excluded(f, path, excludes, use_defaults):
+                    n_excluded += 1
                     continue
                 out.append((str(f), f.read_text(encoding="utf-8")))
+            if n_excluded:
+                print(f"jvp: warning: {p}: 除外 {n_excluded} 件", file=sys.stderr)
         else:
             out.append((str(path), path.read_text(encoding="utf-8")))
     return out
@@ -116,7 +133,12 @@ async def _run(args: argparse.Namespace) -> int:
             Path.cwd(),
             config_path=Path(args.config) if args.config else None,
         )
-        inputs = _iter_inputs(args.paths, args.recursive, args.exclude)
+        inputs = _iter_inputs(
+            args.paths,
+            args.recursive,
+            args.exclude,
+            use_defaults=not args.no_default_excludes,
+        )
     except (ValueError, OSError) as e:
         print(f"jevapan: {e}", file=sys.stderr)
         return 2
@@ -148,7 +170,18 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="GLOB",
-        help="ディレクトリ走査から除外するパターン(相対パス/名前、複数指定可)",
+        help=(
+            "ディレクトリ走査から除外するパターン(走査ルートまたは "
+            "cwd からの相対パス/名前にマッチ。* は / をまたぐ。複数指定可)"
+        ),
+    )
+    chk.add_argument(
+        "--no-default-excludes",
+        action="store_true",
+        help=(
+            "既定の除外セット(.git/_build/node_modules 等)を無効化。"
+            "--exclude は引き続き有効"
+        ),
     )
     chk.add_argument("--ruleset", default=None)
     chk.add_argument("--config", default=None, help="jevapan.yaml path")
