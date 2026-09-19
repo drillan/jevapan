@@ -114,8 +114,9 @@ async def locate_in_document(
     cands = split_candidates(pseudo, all_lines, excluded)
     if not cands:
         return []
-    document = text[:16000]
-    state = {"document": document, "candidates": [t for _, _, t in cands]}
+    # document は切り詰めない。上限超過は下の payload チェックで
+    # StateTooLargeError とし、呼出し側が skipped に記録する(issue #12)
+    state = {"document": text, "candidates": [t for _, _, t in cands]}
     questions = {
         f"s{i}": f"{category.locate} Candidate: `candidates[{i}]` {PLACEHOLDER_NOTE}"
         for i in range(len(cands))
