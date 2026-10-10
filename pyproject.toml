@@ -37,9 +37,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/jevapan"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/jevapan/rulesets" = "jevapan/rulesets"
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
